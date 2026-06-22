@@ -13,13 +13,15 @@ export default function SessionLog() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [success, setSuccess] = useState(false)
+  const [deletingId, setDeletingId] = useState(null) // session id pending delete confirm
+  const [editingSession, setEditingSession] = useState(null) // full session object being edited
 
   // Active session state
   const [selectedDay, setSelectedDay] = useState('day1')
   const [sessionDate, setSessionDate] = useState(new Date().toISOString().split('T')[0])
   const [duration, setDuration] = useState('')
   const [sessionNotes, setSessionNotes] = useState('')
-  const [exerciseSets, setExerciseSets] = useState({}) // { exerciseName: [{weight, reps}] }
+  const [exerciseSets, setExerciseSets] = useState({})
 
   useEffect(() => {
     fetchPrograms()
@@ -48,7 +50,8 @@ export default function SessionLog() {
   }
 
   useEffect(() => {
-    if (currentProgram) initExercises(currentProgram)
+    // Only auto-init when NOT editing — editing loads sets from Supabase
+    if (!editingSession && currentProgram) initExercises(currentProgram)
   }, [selectedDay, programs])
 
   function addSet(exercise) {
@@ -75,37 +78,108 @@ export default function SessionLog() {
     })
   }
 
-  async function saveSession() {
-    setSaving(true)
-    // Insert session
-    const { data: sessionData, error: sessionError } = await supabase
-      .from('sessions')
-      .insert([{
-        day_type: selectedDay,
-        date: sessionDate,
-        duration_minutes: duration ? parseInt(duration) : null,
-        notes: sessionNotes || null,
-      }])
-      .select()
+  // EDIT: load session into log form
+  async function startEdit(session) {
+    const { data: setsData } = await supabase
+      .from('session_sets')
+      .select('*')
+      .eq('session_id', session.id)
+      .order('set_number')
 
-    if (sessionError || !sessionData?.[0]) {
-      setSaving(false)
-      alert('Failed to save session')
-      return
+    // Rebuild exerciseSets from DB rows
+    const rebuilt = {}
+    if (setsData) {
+      setsData.forEach(row => {
+        if (!rebuilt[row.exercise_name]) rebuilt[row.exercise_name] = []
+        rebuilt[row.exercise_name].push({
+          weight: row.weight_kg === null ? 'BW' : String(row.weight_kg ?? ''),
+          reps: String(row.reps ?? ''),
+        })
+      })
     }
 
-    const sessionId = sessionData[0].id
+    // Fill any exercises in the program that have no saved sets with a blank row
+    const program = programs.find(p => p.day_type === session.day_type)
+    if (program) {
+      program.exercises.forEach(ex => {
+        if (!rebuilt[ex]) rebuilt[ex] = [{ weight: '', reps: '' }]
+      })
+    }
 
-    // Insert all sets
+    setEditingSession(session)
+    setSelectedDay(session.day_type)
+    setSessionDate(session.date)
+    setDuration(session.duration_minutes ? String(session.duration_minutes) : '')
+    setSessionNotes(session.notes || '')
+    setExerciseSets(rebuilt)
+    setView('log')
+  }
+
+  function cancelLog() {
+    setEditingSession(null)
+    setView('history')
+    setSelectedDay('day1')
+    setSessionDate(new Date().toISOString().split('T')[0])
+    setDuration('')
+    setSessionNotes('')
+  }
+
+  // SAVE (new or update)
+  async function saveSession() {
+    setSaving(true)
+
+    let sessionId
+
+    if (editingSession) {
+      const { error } = await supabase
+        .from('sessions')
+        .update({
+          day_type: selectedDay,
+          date: sessionDate,
+          duration_minutes: duration ? parseInt(duration) : null,
+          notes: sessionNotes || null,
+        })
+        .eq('id', editingSession.id)
+
+      if (error) {
+        setSaving(false)
+        alert('Failed to update session')
+        return
+      }
+
+      // Delete all existing sets then re-insert
+      await supabase.from('session_sets').delete().eq('session_id', editingSession.id)
+      sessionId = editingSession.id
+
+    } else {
+      const { data: sessionData, error: sessionError } = await supabase
+        .from('sessions')
+        .insert([{
+          day_type: selectedDay,
+          date: sessionDate,
+          duration_minutes: duration ? parseInt(duration) : null,
+          notes: sessionNotes || null,
+        }])
+        .select()
+
+      if (sessionError || !sessionData?.[0]) {
+        setSaving(false)
+        alert('Failed to save session')
+        return
+      }
+      sessionId = sessionData[0].id
+    }
+
     const setsToInsert = []
     Object.entries(exerciseSets).forEach(([exercise, sets]) => {
       sets.forEach((set, idx) => {
-        if (set.weight || set.reps) {
+        const isBW = set.weight === 'BW'
+        if (isBW || set.weight || set.reps) {
           setsToInsert.push({
             session_id: sessionId,
             exercise_name: exercise,
             set_number: idx + 1,
-            weight_kg: set.weight ? parseFloat(set.weight) : null,
+            weight_kg: isBW ? null : (set.weight ? parseFloat(set.weight) : null),
             reps: set.reps ? parseInt(set.reps) : null,
           })
         }
@@ -116,6 +190,7 @@ export default function SessionLog() {
       await supabase.from('session_sets').insert(setsToInsert)
     }
 
+    setEditingSession(null)
     setSuccess(true)
     setView('history')
     fetchSessions()
@@ -123,9 +198,17 @@ export default function SessionLog() {
     setTimeout(() => setSuccess(false), 3000)
   }
 
+  // DELETE
+  async function deleteSession(sessionId) {
+    await supabase.from('session_sets').delete().eq('session_id', sessionId)
+    await supabase.from('sessions').delete().eq('id', sessionId)
+    setDeletingId(null)
+    fetchSessions()
+  }
+
   function getDayName(dayType) {
     const p = programs.find(p => p.day_type === dayType)
-    return p ? `Day ${dayType.replace('day','')} — ${p.day_name}` : dayType
+    return p ? `Day ${dayType.replace('day', '')} — ${p.day_name}` : dayType
   }
 
   function formatDate(dateStr) {
@@ -144,7 +227,7 @@ export default function SessionLog() {
         </div>
         <button
           className={`btn ${view === 'log' ? 'btn-secondary' : 'btn-primary'}`}
-          onClick={() => setView(view === 'log' ? 'history' : 'log')}
+          onClick={() => view === 'log' ? cancelLog() : setView('log')}
         >
           {view === 'log' ? 'Cancel' : '+ Log Session'}
         </button>
@@ -152,20 +235,33 @@ export default function SessionLog() {
 
       {success && (
         <div style={{ background: '#f0fdf4', border: '1px solid #86efac', borderRadius: '8px', padding: '12px 16px', marginBottom: '16px', fontSize: '14px', color: '#16a34a' }}>
-          ✅ Session saved successfully.
+          ✅ Session {editingSession ? 'updated' : 'saved'} successfully.
         </div>
       )}
 
-      {/* LOG SESSION VIEW */}
+      {/* LOG / EDIT VIEW */}
       {view === 'log' && (
         <div>
+          {editingSession && (
+            <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '8px', padding: '10px 14px', marginBottom: '16px', fontSize: '13px', color: 'var(--text-muted)' }}>
+              ✏️ Editing session from <strong>{formatDate(editingSession.date)}</strong>
+            </div>
+          )}
+
           {/* Day selector */}
           <div className="card" style={{ marginBottom: '16px' }}>
             <div className="form-group" style={{ marginBottom: '12px' }}>
               <label className="form-label">Day</label>
-              <select className="form-input" value={selectedDay} onChange={e => setSelectedDay(e.target.value)}>
+              <select
+                className="form-input"
+                value={selectedDay}
+                onChange={e => setSelectedDay(e.target.value)}
+                disabled={!!editingSession}
+              >
                 {programs.map(p => (
-                  <option key={p.day_type} value={p.day_type}>Day {p.day_type.replace('day','')} — {p.day_name}</option>
+                  <option key={p.day_type} value={p.day_type}>
+                    Day {p.day_type.replace('day', '')} — {p.day_name}
+                  </option>
                 ))}
               </select>
             </div>
@@ -186,29 +282,62 @@ export default function SessionLog() {
             <div key={exercise} className="card" style={{ marginBottom: '12px' }}>
               <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '12px', display: 'flex', justifyContent: 'space-between' }}>
                 {exercise}
-                <span style={{ fontSize: '12px', color: 'var(--text-muted)', fontWeight: 400 }}>{exerciseSets[exercise]?.length || 0} sets</span>
+                <span style={{ fontSize: '12px', color: 'var(--text-muted)', fontWeight: 400 }}>
+                  {exerciseSets[exercise]?.length || 0} sets
+                </span>
               </div>
 
               {/* Set headers */}
-              <div style={{ display: 'grid', gridTemplateColumns: '32px 1fr 1fr 32px', gap: '6px', marginBottom: '6px' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '32px 1.5fr 1fr 32px', gap: '6px', marginBottom: '6px' }}>
                 <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600 }}>SET</div>
                 <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600 }}>KG</div>
                 <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600 }}>REPS</div>
                 <div />
               </div>
 
-              {/* Sets */}
+              {/* Set rows */}
               {(exerciseSets[exercise] || []).map((set, idx) => (
-                <div key={idx} style={{ display: 'grid', gridTemplateColumns: '32px 1fr 1fr 32px', gap: '6px', marginBottom: '6px', alignItems: 'center' }}>
-                  <div style={{ fontSize: '13px', fontWeight: 600, color: DAY_COLORS[selectedDay], textAlign: 'center' }}>{idx + 1}</div>
-                  <input
-                    type="number"
-                    className="form-input"
-                    placeholder="0"
-                    value={set.weight}
-                    onChange={e => updateSet(exercise, idx, 'weight', e.target.value)}
-                    style={{ padding: '8px', textAlign: 'center' }}
-                  />
+                <div key={idx} style={{ display: 'grid', gridTemplateColumns: '32px 1.5fr 1fr 32px', gap: '6px', marginBottom: '6px', alignItems: 'center' }}>
+                  <div style={{ fontSize: '13px', fontWeight: 600, color: DAY_COLORS[selectedDay], textAlign: 'center' }}>
+                    {idx + 1}
+                  </div>
+
+                  <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+                    <input
+                      type="number"
+                      className="form-input"
+                      placeholder={set.weight === 'BW' ? 'BW' : '0'}
+                      value={set.weight === 'BW' ? '' : set.weight}
+                      disabled={set.weight === 'BW'}
+                      onChange={e => updateSet(exercise, idx, 'weight', e.target.value)}
+                      style={{
+                        padding: '8px',
+                        textAlign: 'center',
+                        flex: 1,
+                        minWidth: 0,
+                        background: set.weight === 'BW' ? 'var(--bg)' : undefined,
+                        opacity: set.weight === 'BW' ? 0.5 : 1,
+                      }}
+                    />
+                    <button
+                      onClick={() => updateSet(exercise, idx, 'weight', set.weight === 'BW' ? '' : 'BW')}
+                      style={{
+                        flexShrink: 0,
+                        padding: '8px 6px',
+                        border: `1.5px solid ${set.weight === 'BW' ? DAY_COLORS[selectedDay] : 'var(--border)'}`,
+                        borderRadius: '6px',
+                        background: set.weight === 'BW' ? DAY_COLORS[selectedDay] : 'var(--surface)',
+                        color: set.weight === 'BW' ? '#fff' : 'var(--text-muted)',
+                        fontSize: '10px',
+                        fontWeight: 700,
+                        cursor: 'pointer',
+                        whiteSpace: 'nowrap',
+                        transition: 'all 0.15s',
+                        fontFamily: 'inherit',
+                      }}
+                    >BW</button>
+                  </div>
+
                   <input
                     type="number"
                     className="form-input"
@@ -217,6 +346,7 @@ export default function SessionLog() {
                     onChange={e => updateSet(exercise, idx, 'reps', e.target.value)}
                     style={{ padding: '8px', textAlign: 'center' }}
                   />
+
                   <button onClick={() => removeSet(exercise, idx)} style={{
                     background: 'none', border: 'none', cursor: 'pointer',
                     color: 'var(--text-muted)', fontSize: '16px', padding: '4px'
@@ -250,7 +380,7 @@ export default function SessionLog() {
             disabled={saving}
             style={{ width: '100%', justifyContent: 'center', padding: '14px' }}
           >
-            {saving ? 'Saving...' : 'Save Session'}
+            {saving ? 'Saving...' : editingSession ? 'Update Session' : 'Save Session'}
           </button>
         </div>
       )}
@@ -259,7 +389,9 @@ export default function SessionLog() {
       {view === 'history' && (
         <>
           {loading ? (
-            <div className="card"><p style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '24px', fontSize: '14px' }}>Loading...</p></div>
+            <div className="card">
+              <p style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '24px', fontSize: '14px' }}>Loading...</p>
+            </div>
           ) : sessions.length === 0 ? (
             <div className="card">
               <div className="empty-state">
@@ -273,17 +405,60 @@ export default function SessionLog() {
               <div style={{ fontSize: '13px', color: 'var(--text-muted)', marginBottom: '12px' }}>
                 {sessions.length} session{sessions.length !== 1 ? 's' : ''} logged
               </div>
+
               {sessions.map(session => (
                 <div key={session.id || session.date} className="card" style={{ marginBottom: '12px' }}>
+
+                  {/* Delete confirm banner */}
+                  {deletingId === session.id && (
+                    <div style={{ background: '#fef2f2', border: '1px solid #fca5a5', borderRadius: '6px', padding: '10px 12px', marginBottom: '12px', fontSize: '13px', color: '#dc2626', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
+                      <span>Delete this session and all its sets?</span>
+                      <div style={{ display: 'flex', gap: '8px', flexShrink: 0 }}>
+                        <button
+                          onClick={() => deleteSession(session.id)}
+                          style={{ padding: '4px 12px', background: '#dc2626', color: '#fff', border: 'none', borderRadius: '4px', fontSize: '12px', fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}
+                        >Delete</button>
+                        <button
+                          onClick={() => setDeletingId(null)}
+                          style={{ padding: '4px 12px', background: 'var(--surface)', color: 'var(--text-muted)', border: '1px solid var(--border)', borderRadius: '4px', fontSize: '12px', cursor: 'pointer', fontFamily: 'inherit' }}
+                        >Cancel</button>
+                      </div>
+                    </div>
+                  )}
+
                   <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                     <div style={{ width: '4px', height: '40px', borderRadius: '2px', background: DAY_COLORS[session.day_type] || '#6366f1', flexShrink: 0 }} />
-                    <div>
+
+                    <div style={{ flex: 1 }}>
                       <div style={{ fontSize: '14px', fontWeight: 600 }}>{getDayName(session.day_type)}</div>
                       <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '2px' }}>
                         {formatDate(session.date)}{session.duration_minutes ? ` · ${session.duration_minutes} min` : ''}
                       </div>
                     </div>
+
+                    {/* Edit + Delete */}
+                    <div style={{ display: 'flex', gap: '6px', flexShrink: 0 }}>
+                      <button
+                        onClick={() => startEdit(session)}
+                        title="Edit session"
+                        style={{
+                          background: 'var(--surface)', border: '1px solid var(--border)',
+                          borderRadius: '6px', padding: '6px 10px', cursor: 'pointer',
+                          fontSize: '13px', color: 'var(--text-muted)', fontFamily: 'inherit',
+                        }}
+                      >✏️</button>
+                      <button
+                        onClick={() => setDeletingId(session.id)}
+                        title="Delete session"
+                        style={{
+                          background: 'var(--surface)', border: '1px solid var(--border)',
+                          borderRadius: '6px', padding: '6px 10px', cursor: 'pointer',
+                          fontSize: '13px', color: 'var(--text-muted)', fontFamily: 'inherit',
+                        }}
+                      >🗑️</button>
+                    </div>
                   </div>
+
                   {session.notes && (
                     <div style={{ marginTop: '10px', marginLeft: '14px', fontSize: '13px', color: 'var(--text-secondary)', lineHeight: '1.6', borderTop: '1px solid var(--border)', paddingTop: '10px' }}>
                       {session.notes}
