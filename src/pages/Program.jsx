@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../supabase'
+import { useAuth } from '../context/AuthContext'
 
 const DAY_COLORS = {
   day1: '#ef4444', day2: '#3b82f6', day3: '#8b5cf6',
@@ -41,10 +42,10 @@ const PHASE_MAP = {
 }
 
 export default function Program() {
+  const { user } = useAuth()
   const [programs, setPrograms] = useState([])
   const [activeDay, setActiveDay] = useState('day1')
   const [loading, setLoading] = useState(true)
-  const [editingExercise, setEditingExercise] = useState(null)
   const [newExercise, setNewExercise] = useState('')
   const [saving, setSaving] = useState(false)
 
@@ -52,7 +53,7 @@ export default function Program() {
 
   async function fetchPrograms() {
     setLoading(true)
-    const { data } = await supabase.from('programs').select('*').order('day_type')
+    const { data } = await supabase.from('programs').select('*').eq('user_id', user.id).order('day_type')
     if (data) setPrograms(data)
     setLoading(false)
   }
@@ -62,12 +63,23 @@ export default function Program() {
   const phases = PHASE_MAP[activeDay] || []
 
   async function addExercise() {
-    if (!newExercise.trim() || !currentProgram) return
+    if (!newExercise.trim()) return
     setSaving(true)
-    const updated = [...currentProgram.exercises, newExercise.trim()]
-    await supabase.from('programs').update({ exercises: updated }).eq('id', currentProgram.id)
+
+    if (currentProgram) {
+      const updated = [...currentProgram.exercises, newExercise.trim()]
+      await supabase.from('programs').update({ exercises: updated }).eq('id', currentProgram.id)
+    } else {
+      // Create program row for this day if it doesn't exist yet
+      await supabase.from('programs').insert([{
+        user_id: user.id,
+        day_type: activeDay,
+        day_name: `Day ${activeDay.replace('day', '')}`,
+        exercises: [newExercise.trim()]
+      }])
+    }
+
     setNewExercise('')
-    setEditingExercise(null)
     fetchPrograms()
     setSaving(false)
   }
@@ -90,29 +102,30 @@ export default function Program() {
       <div style={{ display: 'flex', gap: '8px', marginBottom: '24px', overflowX: 'auto', paddingBottom: '4px' }}>
         {['day1','day2','day3','day4','day5'].map(day => (
           <button key={day} onClick={() => setActiveDay(day)} style={{
-            flexShrink: 0, padding: '8px 14px', borderRadius: '8px', border: 'none',
+            flexShrink: 0, padding: '8px 14px', borderRadius: '8px',
             cursor: 'pointer', fontWeight: 600, fontSize: '13px', transition: 'all 0.15s',
             background: activeDay === day ? DAY_COLORS[day] : 'var(--surface)',
             color: activeDay === day ? '#fff' : 'var(--text-secondary)',
             border: activeDay === day ? 'none' : '1px solid var(--border)',
           }}>
-            {day === 'day5' ? 'Day 5' : `Day ${day.replace('day','')}`}
+            Day {day.replace('day', '')}
           </button>
         ))}
       </div>
 
       {loading ? (
         <div className="card"><p style={{ color: 'var(--text-muted)', textAlign: 'center', padding: '24px', fontSize: '14px' }}>Loading...</p></div>
-      ) : currentProgram ? (
+      ) : (
         <>
-          {/* Day Header */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '20px' }}>
-            <div style={{ width: '4px', height: '32px', borderRadius: '2px', background: currentColor }} />
-            <div>
-              <div style={{ fontSize: '18px', fontWeight: 700 }}>{currentProgram.day_name}</div>
-              <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{currentProgram.exercises.length} exercises</div>
+          {currentProgram && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '20px' }}>
+              <div style={{ width: '4px', height: '32px', borderRadius: '2px', background: currentColor }} />
+              <div>
+                <div style={{ fontSize: '18px', fontWeight: 700 }}>{currentProgram.day_name}</div>
+                <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{currentProgram.exercises.length} exercises</div>
+              </div>
             </div>
-          </div>
+          )}
 
           {/* Phases */}
           {phases.map((block, bi) => (
@@ -126,25 +139,27 @@ export default function Program() {
                   padding: '8px 0', borderBottom: ei < block.exercises.length - 1 ? '1px solid var(--border)' : 'none'
                 }}>
                   <span style={{ fontSize: '14px', color: 'var(--text-primary)' }}>{ex}</span>
-                  <button onClick={() => removeExercise(ex)} style={{
-                    background: 'none', border: 'none', cursor: 'pointer',
-                    color: 'var(--text-muted)', fontSize: '16px', padding: '2px 6px', borderRadius: '4px'
-                  }}>×</button>
+                  {currentProgram && (
+                    <button onClick={() => removeExercise(ex)} style={{
+                      background: 'none', border: 'none', cursor: 'pointer',
+                      color: 'var(--text-muted)', fontSize: '16px', padding: '2px 6px', borderRadius: '4px'
+                    }}>×</button>
+                  )}
                 </div>
               ))}
             </div>
           ))}
 
-          {/* Exercises not in phases */}
-          {currentProgram.exercises.filter(ex => !phases.flatMap(p => p.exercises).includes(ex)).length > 0 && (
+          {/* Additional exercises not in phases */}
+          {currentProgram && currentProgram.exercises.filter(ex => !phases.flatMap(p => p.exercises).includes(ex)).length > 0 && (
             <div className="card" style={{ marginBottom: '12px' }}>
               <div style={{ fontSize: '11px', fontWeight: 700, letterSpacing: '1.5px', color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: '10px' }}>
                 Additional Exercises
               </div>
-              {currentProgram.exercises.filter(ex => !phases.flatMap(p => p.exercises).includes(ex)).map((ex, ei) => (
+              {currentProgram.exercises.filter(ex => !phases.flatMap(p => p.exercises).includes(ex)).map((ex, ei, arr) => (
                 <div key={ei} style={{
                   display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                  padding: '8px 0', borderBottom: '1px solid var(--border)'
+                  padding: '8px 0', borderBottom: ei < arr.length - 1 ? '1px solid var(--border)' : 'none'
                 }}>
                   <span style={{ fontSize: '14px' }}>{ex}</span>
                   <button onClick={() => removeExercise(ex)} style={{
@@ -174,7 +189,7 @@ export default function Program() {
             </div>
           </div>
         </>
-      ) : null}
+      )}
     </div>
   )
 }

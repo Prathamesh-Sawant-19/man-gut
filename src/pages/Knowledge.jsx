@@ -1,9 +1,11 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../supabase'
+import { useAuth } from '../context/AuthContext'
 
 const CATEGORIES = ['Training', 'Nutrition', 'Recovery', 'Mindset', 'Other']
 
 export default function Knowledge() {
+  const { user } = useAuth()
   const [entries, setEntries] = useState([])
   const [loading, setLoading] = useState(true)
   const [view, setView] = useState('list') // list | new | read
@@ -22,6 +24,7 @@ export default function Knowledge() {
     const { data } = await supabase
       .from('knowledge_entries')
       .select('*')
+      .eq('user_id', user.id)
       .order('created_at', { ascending: false })
     if (data) setEntries(data)
     setLoading(false)
@@ -31,6 +34,7 @@ export default function Knowledge() {
     if (!form.title.trim() || !form.body.trim()) return
     setSaving(true)
     const { error } = await supabase.from('knowledge_entries').insert([{
+      user_id: user.id,
       title: form.title.trim(),
       body: form.body.trim(),
       category: form.category,

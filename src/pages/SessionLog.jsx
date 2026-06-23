@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../supabase'
+import { useAuth } from '../context/AuthContext'
 
 const DAY_COLORS = {
   day1: '#ef4444', day2: '#3b82f6', day3: '#8b5cf6',
@@ -7,6 +8,7 @@ const DAY_COLORS = {
 }
 
 export default function SessionLog() {
+  const { user } = useAuth()
   const [view, setView] = useState('history') // history | log
   const [programs, setPrograms] = useState([])
   const [sessions, setSessions] = useState([])
@@ -29,13 +31,13 @@ export default function SessionLog() {
   }, [])
 
   async function fetchPrograms() {
-    const { data } = await supabase.from('programs').select('*').order('day_type')
+    const { data } = await supabase.from('programs').select('*').eq('user_id', user.id).order('day_type')
     if (data) setPrograms(data)
   }
 
   async function fetchSessions() {
     setLoading(true)
-    const { data } = await supabase.from('sessions').select('*').order('created_at', { ascending: false })
+    const { data } = await supabase.from('sessions').select('*').eq('user_id', user.id).order('created_at', { ascending: false })
     if (data) setSessions(data)
     setLoading(false)
   }
@@ -135,6 +137,7 @@ export default function SessionLog() {
         .from('sessions')
         .update({
           day_type: selectedDay,
+        user_id: user.id,
           date: sessionDate,
           duration_minutes: duration ? parseInt(duration) : null,
           notes: sessionNotes || null,
@@ -156,6 +159,7 @@ export default function SessionLog() {
         .from('sessions')
         .insert([{
           day_type: selectedDay,
+        user_id: user.id,
           date: sessionDate,
           duration_minutes: duration ? parseInt(duration) : null,
           notes: sessionNotes || null,
@@ -177,6 +181,7 @@ export default function SessionLog() {
         if (isBW || set.weight || set.reps) {
           setsToInsert.push({
             session_id: sessionId,
+            user_id: user.id,
             exercise_name: exercise,
             set_number: idx + 1,
             weight_kg: isBW ? null : (set.weight ? parseFloat(set.weight) : null),
