@@ -232,6 +232,14 @@ export default function SessionLog() {
   // Tracks which sets have been marked done: { "exerciseName-idx": true }
   const [doneSets, setDoneSets] = useState({})
 
+  // Tracks actual rest taken per set: { "exerciseName-idx": seconds }
+  const [restTaken, setRestTaken] = useState({})
+
+  // Timestamp when current rest started (wall-clock)
+  const restStartRef = useRef(null)
+  // Which set key started the current rest
+  const restKeyRef = useRef(null)
+
   // Active session state
   const [selectedDay, setSelectedDay] = useState('day1')
   const [sessionDate, setSessionDate] = useState(new Date().toISOString().split('T')[0])
@@ -271,11 +279,26 @@ export default function SessionLog() {
     return () => clearInterval(timerRef.current)
   }, [timerActive, timerPaused])
 
-  function startTimer() {
+  function startTimer(setKey) {
+    // Record actual rest for the previous set if one was running
+    commitRest()
     clearInterval(timerRef.current)
     setTimerSeconds(DEFAULT_REST)
     setTimerPaused(false)
     setTimerActive(true)
+    restStartRef.current = Date.now()
+    restKeyRef.current = setKey || null
+  }
+
+  function commitRest() {
+    // Called when a new set starts or timer is dismissed — locks in actual elapsed rest
+    if (restStartRef.current && restKeyRef.current) {
+      const elapsed = Math.round((Date.now() - restStartRef.current) / 1000)
+      const key = restKeyRef.current
+      setRestTaken(prev => ({ ...prev, [key]: elapsed }))
+    }
+    restStartRef.current = null
+    restKeyRef.current = null
   }
 
   function togglePause() {
@@ -283,10 +306,17 @@ export default function SessionLog() {
   }
 
   function dismissTimer() {
+    commitRest()
     clearInterval(timerRef.current)
     setTimerActive(false)
     setTimerPaused(false)
     setTimerSeconds(0)
+  }
+
+  function fmtSecs(s) {
+    const m = Math.floor(s / 60)
+    const sec = s % 60
+    return `${m}:${String(sec).padStart(2, '0')}`
   }
 
   async function fetchPrograms() {
@@ -386,7 +416,7 @@ export default function SessionLog() {
     const key = `${exercise}-${idx}`
     setDoneSets(prev => {
       const alreadyDone = prev[key]
-      if (!alreadyDone) startTimer()
+      if (!alreadyDone) startTimer(key)  // pass key so rest gets attributed to this set
       return { ...prev, [key]: !alreadyDone }
     })
   }
@@ -436,6 +466,9 @@ export default function SessionLog() {
     dismissTimer()
     setLastSessionSets({})
     setDoneSets({})
+    setRestTaken({})
+    restStartRef.current = null
+    restKeyRef.current = null
   }
 
   // Fetch all-time best weight×reps (e1RM proxy: weight × reps) for PR detection
@@ -547,6 +580,9 @@ export default function SessionLog() {
     setView('history')
     setLastSessionSets({})
     setDoneSets({})
+    setRestTaken({})
+    restStartRef.current = null
+    restKeyRef.current = null
     fetchSessions()
     setSaving(false)
     setTimeout(() => setSuccess(false), 4000)
@@ -695,12 +731,14 @@ export default function SessionLog() {
                 {(exerciseSets[exercise] || []).map((set, idx) => {
                   const doneKey = `${exercise}-${idx}`
                   const isDone = !!doneSets[doneKey]
+                  const rest = restTaken[doneKey]
                   return (
-                    <div key={idx} style={{
+                    <div key={idx}>
+                    <div style={{
                       display: 'grid', gridTemplateColumns: '28px 1.5fr 1fr 36px 28px', gap: '6px',
-                      marginBottom: '6px', alignItems: 'center',
+                      marginBottom: isDone && rest ? '0' : '6px', alignItems: 'center',
                       background: isDone ? 'rgba(16,185,129,0.06)' : 'transparent',
-                      borderRadius: '6px', padding: isDone ? '2px 4px' : '0',
+                      borderRadius: isDone && rest ? '6px 6px 0 0' : '6px', padding: isDone ? '2px 4px' : '0',
                       transition: 'background 0.2s',
                     }}>
                       <div style={{ fontSize: '13px', fontWeight: 600, color: isDone ? '#10b981' : DAY_COLORS[selectedDay], textAlign: 'center' }}>
@@ -775,6 +813,18 @@ export default function SessionLog() {
                         color: 'var(--text-muted)', fontSize: '16px', padding: '4px'
                       }}>×</button>
                     </div>
+                    {/* Rest taken label — shows once rest is committed (next set marked done) */}
+                    {isDone && rest != null && (
+                      <div style={{
+                        fontSize: '11px', color: '#10b981', fontWeight: 600,
+                        padding: '2px 4px 6px 36px', letterSpacing: '0.3px',
+                        background: 'rgba(16,185,129,0.06)', borderRadius: '0 0 6px 6px',
+                        marginBottom: '6px',
+                      }}>
+                        rested {fmtSecs(rest)}
+                      </div>
+                    )}
+                    </div>
                   )
                 })}
 
@@ -798,6 +848,37 @@ export default function SessionLog() {
               style={{ minHeight: '80px' }}
             />
           </div>
+
+          {/* Workout time summary */}
+          {(() => {
+            const totalRestSecs = Object.values(restTaken).reduce((a, b) => a + b, 0)
+            const doneSetsCount = Object.values(doneSets).filter(Boolean).length
+            const setTimeSecs = doneSetsCount * 45 // ~45s per set (effort + transition)
+            const totalSecs = totalRestSecs + setTimeSecs
+            if (doneSetsCount === 0) return null
+            return (
+              <div style={{
+                background: 'var(--surface)', border: '1px solid var(--border)',
+                borderRadius: '8px', padding: '12px 16px', marginBottom: '16px',
+                display: 'flex', gap: '24px', alignItems: 'center',
+              }}>
+                <div style={{ textAlign: 'center' }}>
+                  <div style={{ fontSize: '10px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '1px', textTransform: 'uppercase', marginBottom: '2px' }}>Sets done</div>
+                  <div style={{ fontSize: '20px', fontWeight: 800, color: 'var(--text-primary)' }}>{doneSetsCount}</div>
+                </div>
+                <div style={{ width: '1px', height: '32px', background: 'var(--border)' }} />
+                <div style={{ textAlign: 'center' }}>
+                  <div style={{ fontSize: '10px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '1px', textTransform: 'uppercase', marginBottom: '2px' }}>Total rest</div>
+                  <div style={{ fontSize: '20px', fontWeight: 800, color: 'var(--text-primary)' }}>{fmtSecs(totalRestSecs)}</div>
+                </div>
+                <div style={{ width: '1px', height: '32px', background: 'var(--border)' }} />
+                <div style={{ textAlign: 'center' }}>
+                  <div style={{ fontSize: '10px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '1px', textTransform: 'uppercase', marginBottom: '2px' }}>~Workout time</div>
+                  <div style={{ fontSize: '20px', fontWeight: 800, color: DAY_COLORS[selectedDay] }}>{fmtSecs(totalSecs)}</div>
+                </div>
+              </div>
+            )
+          })()}
 
           <button
             className="btn btn-primary"
