@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { supabase } from '../supabase'
 import { useAuth } from '../context/AuthContext'
 
@@ -8,11 +8,51 @@ const DAY_COLORS = {
 }
 
 // ─────────────────────────────────────────────
+// Rest Timer component
+// ─────────────────────────────────────────────
+function RestTimer({ active, seconds, onDismiss }) {
+  if (!active) return null
+  const mins = Math.floor(seconds / 60)
+  const secs = seconds % 60
+  const display = `${mins}:${String(secs).padStart(2, '0')}`
+  const urgent = seconds <= 10
+
+  return (
+    <div style={{
+      position: 'fixed', bottom: '24px', left: '50%', transform: 'translateX(-50%)',
+      background: urgent ? '#dc2626' : '#1e293b',
+      color: '#fff', borderRadius: '12px', padding: '14px 24px',
+      display: 'flex', alignItems: 'center', gap: '16px',
+      boxShadow: '0 8px 32px rgba(0,0,0,0.25)', zIndex: 1000,
+      minWidth: '220px', justifyContent: 'space-between',
+      transition: 'background 0.3s',
+    }}>
+      <div>
+        <div style={{ fontSize: '11px', fontWeight: 700, letterSpacing: '1px', opacity: 0.7, marginBottom: '2px' }}>REST</div>
+        <div style={{ fontSize: '28px', fontWeight: 800, fontVariantNumeric: 'tabular-nums', letterSpacing: '-0.5px' }}>
+          {display}
+        </div>
+      </div>
+      <button
+        onClick={onDismiss}
+        style={{
+          background: 'rgba(255,255,255,0.15)', border: 'none', color: '#fff',
+          borderRadius: '8px', padding: '8px 14px', cursor: 'pointer', fontSize: '12px',
+          fontWeight: 700, fontFamily: 'inherit',
+        }}
+      >
+        Skip
+      </button>
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────
 // History card — expandable to show sets
 // ─────────────────────────────────────────────
 function SessionCard({ session, getDayName, formatDate, onEdit, onDeleteRequest, deletingId, onDeleteConfirm, onDeleteCancel }) {
   const [expanded, setExpanded] = useState(false)
-  const [sets, setSets] = useState(null) // null = not loaded yet
+  const [sets, setSets] = useState(null)
   const [loadingSets, setLoadingSets] = useState(false)
 
   async function toggleExpand() {
@@ -30,7 +70,6 @@ function SessionCard({ session, getDayName, formatDate, onEdit, onDeleteRequest,
     setExpanded(prev => !prev)
   }
 
-  // Group sets by exercise
   const byExercise = {}
   if (sets) {
     sets.forEach(row => {
@@ -40,11 +79,11 @@ function SessionCard({ session, getDayName, formatDate, onEdit, onDeleteRequest,
   }
 
   const color = DAY_COLORS[session.day_type] || '#6366f1'
+  const hasPR = session.has_pr
 
   return (
     <div className="card" style={{ marginBottom: '12px' }}>
 
-      {/* Delete confirm banner */}
       {deletingId === session.id && (
         <div style={{
           background: '#fef2f2', border: '1px solid #fca5a5', borderRadius: '6px',
@@ -65,19 +104,19 @@ function SessionCard({ session, getDayName, formatDate, onEdit, onDeleteRequest,
         </div>
       )}
 
-      {/* Card header row */}
       <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
         <div style={{ width: '4px', height: '40px', borderRadius: '2px', background: color, flexShrink: 0 }} />
 
-        {/* Clickable area to expand */}
         <div style={{ flex: 1, cursor: 'pointer' }} onClick={toggleExpand}>
-          <div style={{ fontSize: '14px', fontWeight: 600 }}>{getDayName(session.day_type)}</div>
+          <div style={{ fontSize: '14px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '6px' }}>
+            {getDayName(session.day_type)}
+            {hasPR && <span title="Personal record this session!" style={{ fontSize: '13px' }}>🏆</span>}
+          </div>
           <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '2px' }}>
             {formatDate(session.date)}{session.duration_minutes ? ` · ${session.duration_minutes} min` : ''}
           </div>
         </div>
 
-        {/* Expand chevron */}
         <button
           onClick={toggleExpand}
           style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', fontSize: '18px', padding: '4px 6px', lineHeight: 1 }}
@@ -85,7 +124,6 @@ function SessionCard({ session, getDayName, formatDate, onEdit, onDeleteRequest,
           {expanded ? '▲' : '▼'}
         </button>
 
-        {/* Edit + Delete */}
         <div style={{ display: 'flex', gap: '6px', flexShrink: 0 }}>
           <button
             onClick={() => onEdit(session)}
@@ -108,7 +146,6 @@ function SessionCard({ session, getDayName, formatDate, onEdit, onDeleteRequest,
         </div>
       </div>
 
-      {/* Expanded sets view */}
       {expanded && (
         <div style={{ marginTop: '14px', marginLeft: '14px', borderTop: '1px solid var(--border)', paddingTop: '14px' }}>
           {loadingSets ? (
@@ -118,17 +155,23 @@ function SessionCard({ session, getDayName, formatDate, onEdit, onDeleteRequest,
           ) : (
             Object.entries(byExercise).map(([exerciseName, rows]) => (
               <div key={exerciseName} style={{ marginBottom: '16px' }}>
-                <div style={{ fontSize: '12px', fontWeight: 700, color: color, textTransform: 'uppercase', letterSpacing: '0.8px', marginBottom: '6px' }}>
+                <div style={{ fontSize: '12px', fontWeight: 700, color: color, textTransform: 'uppercase', letterSpacing: '0.8px', marginBottom: '6px', display: 'flex', alignItems: 'center', gap: '6px' }}>
                   {exerciseName}
+                  {rows.some(r => r.is_pr) && <span title="PR set">🏆</span>}
                 </div>
-                {/* Set rows header */}
-                <div style={{ display: 'grid', gridTemplateColumns: '28px 1fr 1fr', gap: '4px', marginBottom: '4px' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '28px 1fr 1fr 28px', gap: '4px', marginBottom: '4px' }}>
                   <div style={{ fontSize: '10px', color: 'var(--text-muted)', fontWeight: 700 }}>SET</div>
                   <div style={{ fontSize: '10px', color: 'var(--text-muted)', fontWeight: 700 }}>WEIGHT</div>
                   <div style={{ fontSize: '10px', color: 'var(--text-muted)', fontWeight: 700 }}>REPS</div>
+                  <div />
                 </div>
                 {rows.map((row, i) => (
-                  <div key={i} style={{ display: 'grid', gridTemplateColumns: '28px 1fr 1fr', gap: '4px', padding: '4px 0', borderBottom: i < rows.length - 1 ? '1px solid var(--border)' : 'none' }}>
+                  <div key={i} style={{
+                    display: 'grid', gridTemplateColumns: '28px 1fr 1fr 28px', gap: '4px',
+                    padding: '4px 0', borderBottom: i < rows.length - 1 ? '1px solid var(--border)' : 'none',
+                    background: row.is_pr ? 'rgba(251,191,36,0.06)' : 'transparent',
+                    borderRadius: '4px',
+                  }}>
                     <div style={{ fontSize: '12px', fontWeight: 600, color: color }}>{row.set_number}</div>
                     <div style={{ fontSize: '13px', color: 'var(--text-primary)' }}>
                       {row.weight_kg === null ? 'BW' : row.weight_kg != null ? `${row.weight_kg} kg` : '—'}
@@ -136,13 +179,13 @@ function SessionCard({ session, getDayName, formatDate, onEdit, onDeleteRequest,
                     <div style={{ fontSize: '13px', color: 'var(--text-primary)' }}>
                       {row.reps != null ? `${row.reps}` : '—'}
                     </div>
+                    <div style={{ fontSize: '13px' }}>{row.is_pr ? '🏆' : ''}</div>
                   </div>
                 ))}
               </div>
             ))
           )}
 
-          {/* Notes */}
           {session.notes && (
             <div style={{ fontSize: '13px', color: 'var(--text-secondary)', lineHeight: '1.6', borderTop: '1px solid var(--border)', paddingTop: '10px', marginTop: '4px' }}>
               📝 {session.notes}
@@ -151,7 +194,6 @@ function SessionCard({ session, getDayName, formatDate, onEdit, onDeleteRequest,
         </div>
       )}
 
-      {/* Notes preview when collapsed */}
       {!expanded && session.notes && (
         <div style={{ marginTop: '10px', marginLeft: '14px', fontSize: '13px', color: 'var(--text-secondary)', lineHeight: '1.6', borderTop: '1px solid var(--border)', paddingTop: '10px' }}>
           {session.notes}
@@ -166,14 +208,18 @@ function SessionCard({ session, getDayName, formatDate, onEdit, onDeleteRequest,
 // ─────────────────────────────────────────────
 export default function SessionLog() {
   const { user } = useAuth()
-  const [view, setView] = useState('history') // history | log
+  const [view, setView] = useState('history')
   const [programs, setPrograms] = useState([])
   const [sessions, setSessions] = useState([])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [success, setSuccess] = useState(false)
+  const [successMsg, setSuccessMsg] = useState('')
   const [deletingId, setDeletingId] = useState(null)
   const [editingSession, setEditingSession] = useState(null)
+
+  // Last session reference data: { exerciseName -> [{ weight_kg, reps, set_number }] }
+  const [lastSessionSets, setLastSessionSets] = useState({})
 
   // Active session state
   const [selectedDay, setSelectedDay] = useState('day1')
@@ -182,10 +228,45 @@ export default function SessionLog() {
   const [sessionNotes, setSessionNotes] = useState('')
   const [exerciseSets, setExerciseSets] = useState({})
 
+  // Rest timer
+  const [timerActive, setTimerActive] = useState(false)
+  const [timerSeconds, setTimerSeconds] = useState(0)
+  const timerRef = useRef(null)
+  const DEFAULT_REST = 90 // seconds
+
   useEffect(() => {
     fetchPrograms()
     fetchSessions()
   }, [])
+
+  // Timer tick
+  useEffect(() => {
+    if (timerActive) {
+      timerRef.current = setInterval(() => {
+        setTimerSeconds(prev => {
+          if (prev <= 1) {
+            clearInterval(timerRef.current)
+            setTimerActive(false)
+            return 0
+          }
+          return prev - 1
+        })
+      }, 1000)
+    }
+    return () => clearInterval(timerRef.current)
+  }, [timerActive])
+
+  function startTimer() {
+    clearInterval(timerRef.current)
+    setTimerSeconds(DEFAULT_REST)
+    setTimerActive(true)
+  }
+
+  function dismissTimer() {
+    clearInterval(timerRef.current)
+    setTimerActive(false)
+    setTimerSeconds(0)
+  }
 
   async function fetchPrograms() {
     const { data } = await supabase.from('programs').select('*').eq('user_id', user.id).order('day_type')
@@ -197,6 +278,43 @@ export default function SessionLog() {
     const { data } = await supabase.from('sessions').select('*').eq('user_id', user.id).order('created_at', { ascending: false })
     if (data) setSessions(data)
     setLoading(false)
+  }
+
+  // Load last session sets for the selected day (for reference while logging)
+  async function loadLastSessionSets(dayType) {
+    // Find the most recent previous session for this day_type (skip editingSession)
+    const { data: prevSessions } = await supabase
+      .from('sessions')
+      .select('id, date')
+      .eq('user_id', user.id)
+      .eq('day_type', dayType)
+      .order('created_at', { ascending: false })
+      .limit(5)
+
+    if (!prevSessions || prevSessions.length === 0) {
+      setLastSessionSets({})
+      return
+    }
+
+    // Pick the first session that isn't the one being edited
+    const prev = prevSessions.find(s => !editingSession || s.id !== editingSession.id)
+    if (!prev) { setLastSessionSets({}); return }
+
+    const { data: sets } = await supabase
+      .from('session_sets')
+      .select('exercise_name, set_number, weight_kg, reps')
+      .eq('session_id', prev.id)
+      .order('exercise_name')
+      .order('set_number')
+
+    if (!sets) { setLastSessionSets({}); return }
+
+    const byEx = {}
+    sets.forEach(row => {
+      if (!byEx[row.exercise_name]) byEx[row.exercise_name] = []
+      byEx[row.exercise_name].push(row)
+    })
+    setLastSessionSets(byEx)
   }
 
   const currentProgram = programs.find(p => p.day_type === selectedDay)
@@ -212,7 +330,15 @@ export default function SessionLog() {
     if (!editingSession && currentProgram) initExercises(currentProgram)
   }, [selectedDay, programs])
 
+  // When day changes, load last session for reference
+  useEffect(() => {
+    if (view === 'log') {
+      loadLastSessionSets(selectedDay)
+    }
+  }, [selectedDay, view])
+
   function addSet(exercise) {
+    startTimer()
     setExerciseSets(prev => ({
       ...prev,
       [exercise]: [...(prev[exercise] || []), { weight: '', reps: '' }]
@@ -234,6 +360,15 @@ export default function SessionLog() {
       sets[idx] = { ...sets[idx], [field]: value }
       return { ...prev, [exercise]: sets }
     })
+  }
+
+  // Called when a set row loses focus — treat that as "set logged", start timer
+  function handleSetBlur(exercise, idx) {
+    const set = (exerciseSets[exercise] || [])[idx]
+    // Only start timer if the set has at least reps filled
+    if (set && set.reps) {
+      startTimer()
+    }
   }
 
   async function startEdit(session) {
@@ -268,6 +403,7 @@ export default function SessionLog() {
     setSessionNotes(session.notes || '')
     setExerciseSets(rebuilt)
     setView('log')
+    loadLastSessionSets(session.day_type)
   }
 
   function cancelLog() {
@@ -277,10 +413,31 @@ export default function SessionLog() {
     setSessionDate(new Date().toISOString().split('T')[0])
     setDuration('')
     setSessionNotes('')
+    dismissTimer()
+    setLastSessionSets({})
+  }
+
+  // Fetch all-time best weight×reps (e1RM proxy: weight × reps) for PR detection
+  async function fetchPRMap() {
+    const { data } = await supabase
+      .from('session_sets')
+      .select('exercise_name, weight_kg, reps')
+      .eq('user_id', user.id)
+    if (!data) return {}
+    const prMap = {}
+    data.forEach(row => {
+      if (row.weight_kg == null || row.reps == null) return
+      const score = row.weight_kg * row.reps
+      if (!prMap[row.exercise_name] || score > prMap[row.exercise_name]) {
+        prMap[row.exercise_name] = score
+      }
+    })
+    return prMap
   }
 
   async function saveSession() {
     setSaving(true)
+    dismissTimer()
 
     let sessionId
 
@@ -315,11 +472,29 @@ export default function SessionLog() {
       sessionId = sessionData[0].id
     }
 
+    // Fetch existing PRs before inserting new sets
+    const existingPRMap = await fetchPRMap()
+
     const setsToInsert = []
+    let sessionHasPR = false
+
     Object.entries(exerciseSets).forEach(([exercise, sets]) => {
       sets.forEach((set, idx) => {
         const isBW = set.weight === 'BW'
         if (isBW || set.weight || set.reps) {
+          const wkg = isBW ? null : (set.weight ? parseFloat(set.weight) : null)
+          const reps = set.reps ? parseInt(set.reps) : null
+          // PR detection: new score beats existing record
+          let isPR = false
+          if (wkg != null && reps != null) {
+            const score = wkg * reps
+            const prevBest = existingPRMap[exercise] || 0
+            if (score > prevBest) {
+              isPR = true
+              sessionHasPR = true
+              existingPRMap[exercise] = score // update in-memory so only first new PR counts
+            }
+          }
           setsToInsert.push({
             session_id: sessionId,
             user_id: user.id,
@@ -327,6 +502,7 @@ export default function SessionLog() {
             set_number: idx + 1,
             weight_kg: isBW ? null : (set.weight ? parseFloat(set.weight) : null),
             reps: set.reps ? parseInt(set.reps) : null,
+            is_pr: isPR,
           })
         }
       })
@@ -336,12 +512,22 @@ export default function SessionLog() {
       await supabase.from('session_sets').insert(setsToInsert)
     }
 
+    // Update session with has_pr flag
+    if (sessionHasPR) {
+      await supabase.from('sessions').update({ has_pr: true }).eq('id', sessionId)
+    }
+
     setEditingSession(null)
+    const msg = sessionHasPR
+      ? (editingSession ? 'Session updated. 🏆 New personal record!' : 'Session saved. 🏆 New personal record!')
+      : (editingSession ? 'Session updated.' : 'Session saved.')
+    setSuccessMsg(msg)
     setSuccess(true)
     setView('history')
+    setLastSessionSets({})
     fetchSessions()
     setSaving(false)
-    setTimeout(() => setSuccess(false), 3000)
+    setTimeout(() => setSuccess(false), 4000)
   }
 
   async function deleteSession(sessionId) {
@@ -362,8 +548,15 @@ export default function SessionLog() {
     })
   }
 
+  // Helper: get last session reference for an exercise
+  function getLastRef(exercise) {
+    return lastSessionSets[exercise] || []
+  }
+
   return (
     <div>
+      <RestTimer active={timerActive} seconds={timerSeconds} onDismiss={dismissTimer} />
+
       {/* Header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '24px' }}>
         <div>
@@ -379,8 +572,14 @@ export default function SessionLog() {
       </div>
 
       {success && (
-        <div style={{ background: '#f0fdf4', border: '1px solid #86efac', borderRadius: '8px', padding: '12px 16px', marginBottom: '16px', fontSize: '14px', color: '#16a34a' }}>
-          ✅ Session {editingSession ? 'updated' : 'saved'} successfully.
+        <div style={{
+          background: successMsg.includes('🏆') ? '#fefce8' : '#f0fdf4',
+          border: `1px solid ${successMsg.includes('🏆') ? '#fde68a' : '#86efac'}`,
+          borderRadius: '8px', padding: '12px 16px', marginBottom: '16px',
+          fontSize: '14px', color: successMsg.includes('🏆') ? '#92400e' : '#16a34a',
+          fontWeight: 500,
+        }}>
+          ✅ {successMsg}
         </div>
       )}
 
@@ -422,90 +621,121 @@ export default function SessionLog() {
             </div>
           </div>
 
+          {/* Last session reference banner */}
+          {Object.keys(lastSessionSets).length > 0 && (
+            <div style={{
+              background: 'var(--surface)', border: '1px solid var(--border)',
+              borderRadius: '8px', padding: '8px 14px', marginBottom: '16px',
+              fontSize: '12px', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '6px'
+            }}>
+              📋 <span>Showing last session weights below each exercise — beat them.</span>
+            </div>
+          )}
+
           {/* Exercises */}
-          {currentProgram?.exercises.map(exercise => (
-            <div key={exercise} className="card" style={{ marginBottom: '12px' }}>
-              <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '12px', display: 'flex', justifyContent: 'space-between' }}>
-                {exercise}
-                <span style={{ fontSize: '12px', color: 'var(--text-muted)', fontWeight: 400 }}>
-                  {exerciseSets[exercise]?.length || 0} sets
-                </span>
-              </div>
+          {currentProgram?.exercises.map(exercise => {
+            const lastRef = getLastRef(exercise)
+            return (
+              <div key={exercise} className="card" style={{ marginBottom: '12px' }}>
+                <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '4px', display: 'flex', justifyContent: 'space-between' }}>
+                  {exercise}
+                  <span style={{ fontSize: '12px', color: 'var(--text-muted)', fontWeight: 400 }}>
+                    {exerciseSets[exercise]?.length || 0} sets
+                  </span>
+                </div>
 
-              {/* Set headers */}
-              <div style={{ display: 'grid', gridTemplateColumns: '32px 1.5fr 1fr 32px', gap: '6px', marginBottom: '6px' }}>
-                <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600 }}>SET</div>
-                <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600 }}>KG</div>
-                <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600 }}>REPS</div>
-                <div />
-              </div>
-
-              {/* Set rows */}
-              {(exerciseSets[exercise] || []).map((set, idx) => (
-                <div key={idx} style={{ display: 'grid', gridTemplateColumns: '32px 1.5fr 1fr 32px', gap: '6px', marginBottom: '6px', alignItems: 'center' }}>
-                  <div style={{ fontSize: '13px', fontWeight: 600, color: DAY_COLORS[selectedDay], textAlign: 'center' }}>
-                    {idx + 1}
+                {/* Last session reference */}
+                {lastRef.length > 0 && (
+                  <div style={{
+                    fontSize: '11px', color: 'var(--text-muted)', marginBottom: '10px',
+                    padding: '5px 8px', background: 'var(--bg)', borderRadius: '5px',
+                    borderLeft: `2px solid ${DAY_COLORS[selectedDay]}`,
+                  }}>
+                    <span style={{ fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px', marginRight: '6px' }}>Last:</span>
+                    {lastRef.map((r, i) => (
+                      <span key={i} style={{ marginRight: '8px' }}>
+                        {r.weight_kg === null ? 'BW' : `${r.weight_kg}kg`}×{r.reps}
+                      </span>
+                    ))}
                   </div>
+                )}
 
-                  <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+                {/* Set headers */}
+                <div style={{ display: 'grid', gridTemplateColumns: '32px 1.5fr 1fr 32px', gap: '6px', marginBottom: '6px' }}>
+                  <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600 }}>SET</div>
+                  <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600 }}>KG</div>
+                  <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600 }}>REPS</div>
+                  <div />
+                </div>
+
+                {/* Set rows */}
+                {(exerciseSets[exercise] || []).map((set, idx) => (
+                  <div key={idx} style={{ display: 'grid', gridTemplateColumns: '32px 1.5fr 1fr 32px', gap: '6px', marginBottom: '6px', alignItems: 'center' }}>
+                    <div style={{ fontSize: '13px', fontWeight: 600, color: DAY_COLORS[selectedDay], textAlign: 'center' }}>
+                      {idx + 1}
+                    </div>
+
+                    <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+                      <input
+                        type="number"
+                        className="form-input"
+                        placeholder={set.weight === 'BW' ? 'BW' : (lastRef[idx]?.weight_kg ?? '0')}
+                        value={set.weight === 'BW' ? '' : set.weight}
+                        disabled={set.weight === 'BW'}
+                        onChange={e => updateSet(exercise, idx, 'weight', e.target.value)}
+                        style={{
+                          padding: '8px',
+                          textAlign: 'center',
+                          flex: 1,
+                          minWidth: 0,
+                          background: set.weight === 'BW' ? 'var(--bg)' : undefined,
+                          opacity: set.weight === 'BW' ? 0.5 : 1,
+                        }}
+                      />
+                      <button
+                        onClick={() => updateSet(exercise, idx, 'weight', set.weight === 'BW' ? '' : 'BW')}
+                        style={{
+                          flexShrink: 0,
+                          padding: '8px 6px',
+                          border: `1.5px solid ${set.weight === 'BW' ? DAY_COLORS[selectedDay] : 'var(--border)'}`,
+                          borderRadius: '6px',
+                          background: set.weight === 'BW' ? DAY_COLORS[selectedDay] : 'var(--surface)',
+                          color: set.weight === 'BW' ? '#fff' : 'var(--text-muted)',
+                          fontSize: '10px',
+                          fontWeight: 700,
+                          cursor: 'pointer',
+                          whiteSpace: 'nowrap',
+                          transition: 'all 0.15s',
+                          fontFamily: 'inherit',
+                        }}
+                      >BW</button>
+                    </div>
+
                     <input
                       type="number"
                       className="form-input"
-                      placeholder={set.weight === 'BW' ? 'BW' : '0'}
-                      value={set.weight === 'BW' ? '' : set.weight}
-                      disabled={set.weight === 'BW'}
-                      onChange={e => updateSet(exercise, idx, 'weight', e.target.value)}
-                      style={{
-                        padding: '8px',
-                        textAlign: 'center',
-                        flex: 1,
-                        minWidth: 0,
-                        background: set.weight === 'BW' ? 'var(--bg)' : undefined,
-                        opacity: set.weight === 'BW' ? 0.5 : 1,
-                      }}
+                      placeholder={lastRef[idx]?.reps ? String(lastRef[idx].reps) : '0'}
+                      value={set.reps}
+                      onChange={e => updateSet(exercise, idx, 'reps', e.target.value)}
+                      onBlur={() => handleSetBlur(exercise, idx)}
+                      style={{ padding: '8px', textAlign: 'center' }}
                     />
-                    <button
-                      onClick={() => updateSet(exercise, idx, 'weight', set.weight === 'BW' ? '' : 'BW')}
-                      style={{
-                        flexShrink: 0,
-                        padding: '8px 6px',
-                        border: `1.5px solid ${set.weight === 'BW' ? DAY_COLORS[selectedDay] : 'var(--border)'}`,
-                        borderRadius: '6px',
-                        background: set.weight === 'BW' ? DAY_COLORS[selectedDay] : 'var(--surface)',
-                        color: set.weight === 'BW' ? '#fff' : 'var(--text-muted)',
-                        fontSize: '10px',
-                        fontWeight: 700,
-                        cursor: 'pointer',
-                        whiteSpace: 'nowrap',
-                        transition: 'all 0.15s',
-                        fontFamily: 'inherit',
-                      }}
-                    >BW</button>
+
+                    <button onClick={() => removeSet(exercise, idx)} style={{
+                      background: 'none', border: 'none', cursor: 'pointer',
+                      color: 'var(--text-muted)', fontSize: '16px', padding: '4px'
+                    }}>×</button>
                   </div>
+                ))}
 
-                  <input
-                    type="number"
-                    className="form-input"
-                    placeholder="0"
-                    value={set.reps}
-                    onChange={e => updateSet(exercise, idx, 'reps', e.target.value)}
-                    style={{ padding: '8px', textAlign: 'center' }}
-                  />
-
-                  <button onClick={() => removeSet(exercise, idx)} style={{
-                    background: 'none', border: 'none', cursor: 'pointer',
-                    color: 'var(--text-muted)', fontSize: '16px', padding: '4px'
-                  }}>×</button>
-                </div>
-              ))}
-
-              <button onClick={() => addSet(exercise)} style={{
-                background: 'none', border: '1px dashed var(--border)', borderRadius: '6px',
-                width: '100%', padding: '6px', cursor: 'pointer', fontSize: '12px',
-                color: 'var(--text-muted)', marginTop: '4px'
-              }}>+ Add Set</button>
-            </div>
-          ))}
+                <button onClick={() => addSet(exercise)} style={{
+                  background: 'none', border: '1px dashed var(--border)', borderRadius: '6px',
+                  width: '100%', padding: '6px', cursor: 'pointer', fontSize: '12px',
+                  color: 'var(--text-muted)', marginTop: '4px'
+                }}>+ Add Set</button>
+              </div>
+            )
+          })}
 
           {/* Notes */}
           <div className="card" style={{ marginBottom: '16px' }}>
