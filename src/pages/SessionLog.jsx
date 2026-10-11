@@ -8,33 +8,41 @@ const DAY_COLORS = {
 }
 
 // ─────────────────────────────────────────────
-// Rest Timer component
+// Rest Timer component — tap pill to pause/resume
 // ─────────────────────────────────────────────
-function RestTimer({ active, seconds, onDismiss }) {
+function RestTimer({ active, paused, seconds, onTogglePause, onDismiss }) {
   if (!active) return null
   const mins = Math.floor(seconds / 60)
   const secs = seconds % 60
   const display = `${mins}:${String(secs).padStart(2, '0')}`
-  const urgent = seconds <= 10
+  const urgent = seconds <= 10 && !paused
 
   return (
-    <div style={{
-      position: 'fixed', bottom: '24px', left: '50%', transform: 'translateX(-50%)',
-      background: urgent ? '#dc2626' : '#1e293b',
-      color: '#fff', borderRadius: '12px', padding: '14px 24px',
-      display: 'flex', alignItems: 'center', gap: '16px',
-      boxShadow: '0 8px 32px rgba(0,0,0,0.25)', zIndex: 1000,
-      minWidth: '220px', justifyContent: 'space-between',
-      transition: 'background 0.3s',
-    }}>
+    <div
+      onClick={onTogglePause}
+      title={paused ? 'Tap to resume' : 'Tap to pause'}
+      style={{
+        position: 'fixed', bottom: '24px', left: '50%', transform: 'translateX(-50%)',
+        background: paused ? '#475569' : urgent ? '#dc2626' : '#1e293b',
+        color: '#fff', borderRadius: '12px', padding: '14px 24px',
+        display: 'flex', alignItems: 'center', gap: '16px',
+        boxShadow: '0 8px 32px rgba(0,0,0,0.25)', zIndex: 1000,
+        minWidth: '240px', justifyContent: 'space-between',
+        transition: 'background 0.3s',
+        cursor: 'pointer', userSelect: 'none',
+      }}
+    >
       <div>
-        <div style={{ fontSize: '11px', fontWeight: 700, letterSpacing: '1px', opacity: 0.7, marginBottom: '2px' }}>REST</div>
-        <div style={{ fontSize: '28px', fontWeight: 800, fontVariantNumeric: 'tabular-nums', letterSpacing: '-0.5px' }}>
+        <div style={{ fontSize: '11px', fontWeight: 700, letterSpacing: '1px', opacity: 0.7, marginBottom: '2px' }}>
+          {paused ? 'PAUSED — tap to resume' : 'REST'}
+        </div>
+        <div style={{ fontSize: '28px', fontWeight: 800, fontVariantNumeric: 'tabular-nums', letterSpacing: '-0.5px', display: 'flex', alignItems: 'center', gap: '10px' }}>
           {display}
+          <span style={{ fontSize: '18px', opacity: 0.7 }}>{paused ? '▶' : '⏸'}</span>
         </div>
       </div>
       <button
-        onClick={onDismiss}
+        onClick={e => { e.stopPropagation(); onDismiss() }}
         style={{
           background: 'rgba(255,255,255,0.15)', border: 'none', color: '#fff',
           borderRadius: '8px', padding: '8px 14px', cursor: 'pointer', fontSize: '12px',
@@ -221,6 +229,9 @@ export default function SessionLog() {
   // Last session reference data: { exerciseName -> [{ weight_kg, reps, set_number }] }
   const [lastSessionSets, setLastSessionSets] = useState({})
 
+  // Tracks which sets have been marked done: { "exerciseName-idx": true }
+  const [doneSets, setDoneSets] = useState({})
+
   // Active session state
   const [selectedDay, setSelectedDay] = useState('day1')
   const [sessionDate, setSessionDate] = useState(new Date().toISOString().split('T')[0])
@@ -230,6 +241,7 @@ export default function SessionLog() {
 
   // Rest timer
   const [timerActive, setTimerActive] = useState(false)
+  const [timerPaused, setTimerPaused] = useState(false)
   const [timerSeconds, setTimerSeconds] = useState(0)
   const timerRef = useRef(null)
   const DEFAULT_REST = 90 // seconds
@@ -239,32 +251,41 @@ export default function SessionLog() {
     fetchSessions()
   }, [])
 
-  // Timer tick
+  // Timer tick — only runs when active AND not paused
   useEffect(() => {
-    if (timerActive) {
+    if (timerActive && !timerPaused) {
       timerRef.current = setInterval(() => {
         setTimerSeconds(prev => {
           if (prev <= 1) {
             clearInterval(timerRef.current)
             setTimerActive(false)
+            setTimerPaused(false)
             return 0
           }
           return prev - 1
         })
       }, 1000)
+    } else {
+      clearInterval(timerRef.current)
     }
     return () => clearInterval(timerRef.current)
-  }, [timerActive])
+  }, [timerActive, timerPaused])
 
   function startTimer() {
     clearInterval(timerRef.current)
     setTimerSeconds(DEFAULT_REST)
+    setTimerPaused(false)
     setTimerActive(true)
+  }
+
+  function togglePause() {
+    setTimerPaused(prev => !prev)
   }
 
   function dismissTimer() {
     clearInterval(timerRef.current)
     setTimerActive(false)
+    setTimerPaused(false)
     setTimerSeconds(0)
   }
 
@@ -338,7 +359,6 @@ export default function SessionLog() {
   }, [selectedDay, view])
 
   function addSet(exercise) {
-    startTimer()
     setExerciseSets(prev => ({
       ...prev,
       [exercise]: [...(prev[exercise] || []), { weight: '', reps: '' }]
@@ -362,13 +382,13 @@ export default function SessionLog() {
     })
   }
 
-  // Called when a set row loses focus — treat that as "set logged", start timer
-  function handleSetBlur(exercise, idx) {
-    const set = (exerciseSets[exercise] || [])[idx]
-    // Only start timer if the set has at least reps filled
-    if (set && set.reps) {
-      startTimer()
-    }
+  function markSetDone(exercise, idx) {
+    const key = `${exercise}-${idx}`
+    setDoneSets(prev => {
+      const alreadyDone = prev[key]
+      if (!alreadyDone) startTimer()
+      return { ...prev, [key]: !alreadyDone }
+    })
   }
 
   async function startEdit(session) {
@@ -415,6 +435,7 @@ export default function SessionLog() {
     setSessionNotes('')
     dismissTimer()
     setLastSessionSets({})
+    setDoneSets({})
   }
 
   // Fetch all-time best weight×reps (e1RM proxy: weight × reps) for PR detection
@@ -525,6 +546,7 @@ export default function SessionLog() {
     setSuccess(true)
     setView('history')
     setLastSessionSets({})
+    setDoneSets({})
     fetchSessions()
     setSaving(false)
     setTimeout(() => setSuccess(false), 4000)
@@ -555,7 +577,7 @@ export default function SessionLog() {
 
   return (
     <div>
-      <RestTimer active={timerActive} seconds={timerSeconds} onDismiss={dismissTimer} />
+      <RestTimer active={timerActive} paused={timerPaused} seconds={timerSeconds} onTogglePause={togglePause} onDismiss={dismissTimer} />
 
       {/* Header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '24px' }}>
@@ -661,72 +683,100 @@ export default function SessionLog() {
                 )}
 
                 {/* Set headers */}
-                <div style={{ display: 'grid', gridTemplateColumns: '32px 1.5fr 1fr 32px', gap: '6px', marginBottom: '6px' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '28px 1.5fr 1fr 36px 28px', gap: '6px', marginBottom: '6px' }}>
                   <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600 }}>SET</div>
                   <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600 }}>KG</div>
                   <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600 }}>REPS</div>
+                  <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600, textAlign: 'center' }}>✓</div>
                   <div />
                 </div>
 
                 {/* Set rows */}
-                {(exerciseSets[exercise] || []).map((set, idx) => (
-                  <div key={idx} style={{ display: 'grid', gridTemplateColumns: '32px 1.5fr 1fr 32px', gap: '6px', marginBottom: '6px', alignItems: 'center' }}>
-                    <div style={{ fontSize: '13px', fontWeight: 600, color: DAY_COLORS[selectedDay], textAlign: 'center' }}>
-                      {idx + 1}
-                    </div>
+                {(exerciseSets[exercise] || []).map((set, idx) => {
+                  const doneKey = `${exercise}-${idx}`
+                  const isDone = !!doneSets[doneKey]
+                  return (
+                    <div key={idx} style={{
+                      display: 'grid', gridTemplateColumns: '28px 1.5fr 1fr 36px 28px', gap: '6px',
+                      marginBottom: '6px', alignItems: 'center',
+                      background: isDone ? 'rgba(16,185,129,0.06)' : 'transparent',
+                      borderRadius: '6px', padding: isDone ? '2px 4px' : '0',
+                      transition: 'background 0.2s',
+                    }}>
+                      <div style={{ fontSize: '13px', fontWeight: 600, color: isDone ? '#10b981' : DAY_COLORS[selectedDay], textAlign: 'center' }}>
+                        {idx + 1}
+                      </div>
 
-                    <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+                      <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+                        <input
+                          type="number"
+                          className="form-input"
+                          placeholder={set.weight === 'BW' ? 'BW' : (lastRef[idx]?.weight_kg != null ? String(lastRef[idx].weight_kg) : '0')}
+                          value={set.weight === 'BW' ? '' : set.weight}
+                          disabled={set.weight === 'BW' || isDone}
+                          onChange={e => updateSet(exercise, idx, 'weight', e.target.value)}
+                          style={{
+                            padding: '8px',
+                            textAlign: 'center',
+                            flex: 1,
+                            minWidth: 0,
+                            background: isDone ? 'var(--bg)' : set.weight === 'BW' ? 'var(--bg)' : undefined,
+                            opacity: isDone || set.weight === 'BW' ? 0.5 : 1,
+                          }}
+                        />
+                        <button
+                          onClick={() => !isDone && updateSet(exercise, idx, 'weight', set.weight === 'BW' ? '' : 'BW')}
+                          disabled={isDone}
+                          style={{
+                            flexShrink: 0,
+                            padding: '8px 6px',
+                            border: `1.5px solid ${set.weight === 'BW' ? DAY_COLORS[selectedDay] : 'var(--border)'}`,
+                            borderRadius: '6px',
+                            background: set.weight === 'BW' ? DAY_COLORS[selectedDay] : 'var(--surface)',
+                            color: set.weight === 'BW' ? '#fff' : 'var(--text-muted)',
+                            fontSize: '10px',
+                            fontWeight: 700,
+                            cursor: isDone ? 'default' : 'pointer',
+                            whiteSpace: 'nowrap',
+                            transition: 'all 0.15s',
+                            fontFamily: 'inherit',
+                            opacity: isDone ? 0.4 : 1,
+                          }}
+                        >BW</button>
+                      </div>
+
                       <input
                         type="number"
                         className="form-input"
-                        placeholder={set.weight === 'BW' ? 'BW' : (lastRef[idx]?.weight_kg ?? '0')}
-                        value={set.weight === 'BW' ? '' : set.weight}
-                        disabled={set.weight === 'BW'}
-                        onChange={e => updateSet(exercise, idx, 'weight', e.target.value)}
-                        style={{
-                          padding: '8px',
-                          textAlign: 'center',
-                          flex: 1,
-                          minWidth: 0,
-                          background: set.weight === 'BW' ? 'var(--bg)' : undefined,
-                          opacity: set.weight === 'BW' ? 0.5 : 1,
-                        }}
+                        placeholder={lastRef[idx]?.reps ? String(lastRef[idx].reps) : '0'}
+                        value={set.reps}
+                        disabled={isDone}
+                        onChange={e => updateSet(exercise, idx, 'reps', e.target.value)}
+                        style={{ padding: '8px', textAlign: 'center', opacity: isDone ? 0.5 : 1 }}
                       />
+
+                      {/* ✓ Done button */}
                       <button
-                        onClick={() => updateSet(exercise, idx, 'weight', set.weight === 'BW' ? '' : 'BW')}
+                        onClick={() => markSetDone(exercise, idx)}
+                        title={isDone ? 'Undo done' : 'Mark set done — starts rest timer'}
                         style={{
-                          flexShrink: 0,
-                          padding: '8px 6px',
-                          border: `1.5px solid ${set.weight === 'BW' ? DAY_COLORS[selectedDay] : 'var(--border)'}`,
-                          borderRadius: '6px',
-                          background: set.weight === 'BW' ? DAY_COLORS[selectedDay] : 'var(--surface)',
-                          color: set.weight === 'BW' ? '#fff' : 'var(--text-muted)',
-                          fontSize: '10px',
-                          fontWeight: 700,
-                          cursor: 'pointer',
-                          whiteSpace: 'nowrap',
-                          transition: 'all 0.15s',
-                          fontFamily: 'inherit',
+                          width: '36px', height: '36px', borderRadius: '8px',
+                          border: `1.5px solid ${isDone ? '#10b981' : 'var(--border)'}`,
+                          background: isDone ? '#10b981' : 'var(--surface)',
+                          color: isDone ? '#fff' : 'var(--text-muted)',
+                          fontSize: '15px', fontWeight: 700,
+                          cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          transition: 'all 0.15s', flexShrink: 0,
                         }}
-                      >BW</button>
+                      >✓</button>
+
+                      <button onClick={() => removeSet(exercise, idx)} style={{
+                        background: 'none', border: 'none', cursor: 'pointer',
+                        color: 'var(--text-muted)', fontSize: '16px', padding: '4px'
+                      }}>×</button>
                     </div>
-
-                    <input
-                      type="number"
-                      className="form-input"
-                      placeholder={lastRef[idx]?.reps ? String(lastRef[idx].reps) : '0'}
-                      value={set.reps}
-                      onChange={e => updateSet(exercise, idx, 'reps', e.target.value)}
-                      onBlur={() => handleSetBlur(exercise, idx)}
-                      style={{ padding: '8px', textAlign: 'center' }}
-                    />
-
-                    <button onClick={() => removeSet(exercise, idx)} style={{
-                      background: 'none', border: 'none', cursor: 'pointer',
-                      color: 'var(--text-muted)', fontSize: '16px', padding: '4px'
-                    }}>×</button>
-                  </div>
-                ))}
+                  )
+                })}
 
                 <button onClick={() => addSet(exercise)} style={{
                   background: 'none', border: '1px dashed var(--border)', borderRadius: '6px',
