@@ -212,6 +212,177 @@ function SessionCard({ session, getDayName, formatDate, onEdit, onDeleteRequest,
 }
 
 // ─────────────────────────────────────────────
+// Calendar Month Grid
+// ─────────────────────────────────────────────
+const DAY_COLOR_VARS = {
+  day1: 'var(--d1)', day2: 'var(--d2)', day3: 'var(--d3)',
+  day4: 'var(--d4)', day5: 'var(--d5)'
+}
+const DAY_ALPHA = {
+  day1: 'rgba(224,53,53,0.13)', day2: 'rgba(59,130,246,0.13)', day3: 'rgba(139,92,246,0.13)',
+  day4: 'rgba(16,185,129,0.13)', day5: 'rgba(245,158,11,0.13)'
+}
+
+function CalendarGrid({ sessions, programs, onDayClick }) {
+  const today = new Date()
+  const [year, setYear] = useState(today.getFullYear())
+  const [month, setMonth] = useState(today.getMonth()) // 0-indexed
+
+  // Build a lookup: "YYYY-MM-DD" -> session
+  const sessionMap = {}
+  sessions.forEach(s => {
+    if (s.date) sessionMap[s.date] = s
+  })
+
+  // Helper: extract short workout name from program list
+  function getShortName(dayType, progs) {
+    const p = progs.find(p => p.day_type === dayType)
+    if (!p) return dayType
+    // Shorten long names: "Chest & Triceps" → "Chest & Tri"
+    let n = p.day_name || ''
+    if (n.length > 12) n = n.replace(/Tricep(s)?/i, 'Tri').replace(/Bicep(s)?/i, 'Bi')
+    if (n.length > 12) n = n.slice(0, 11) + '…'
+    return n
+  }
+
+  // Build calendar days for this month
+  const firstDay = new Date(year, month, 1)
+  const lastDay = new Date(year, month + 1, 0)
+  const startPad = firstDay.getDay() // 0=Sun
+  const totalCells = startPad + lastDay.getDate()
+  const rows = Math.ceil(totalCells / 7)
+
+  const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December']
+  const DAYS = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat']
+
+  const todayStr = today.toISOString().split('T')[0]
+
+  function prevMonth() {
+    if (month === 0) { setYear(y => y - 1); setMonth(11) }
+    else setMonth(m => m - 1)
+  }
+  function nextMonth() {
+    if (month === 11) { setYear(y => y + 1); setMonth(0) }
+    else setMonth(m => m + 1)
+  }
+
+  const cells = []
+  for (let r = 0; r < rows; r++) {
+    for (let d = 0; d < 7; d++) {
+      const cellIndex = r * 7 + d
+      const dayNum = cellIndex - startPad + 1
+      cells.push(dayNum >= 1 && dayNum <= lastDay.getDate() ? dayNum : null)
+    }
+  }
+
+  return (
+    <div style={{ marginBottom: '28px' }}>
+      {/* Month nav */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px' }}>
+        <button onClick={prevMonth} style={{
+          background: 'none', border: '1px solid var(--border)', borderRadius: '6px',
+          padding: '5px 11px', fontSize: '13px', cursor: 'pointer', color: 'var(--text-2)',
+          fontFamily: 'inherit', fontWeight: 600
+        }}>‹</button>
+        <span style={{ fontFamily: "'Playfair Display', serif", fontWeight: 700, fontSize: '16px', color: 'var(--text-1)' }}>
+          {MONTHS[month]} {year}
+        </span>
+        <button onClick={nextMonth} style={{
+          background: 'none', border: '1px solid var(--border)', borderRadius: '6px',
+          padding: '5px 11px', fontSize: '13px', cursor: 'pointer', color: 'var(--text-2)',
+          fontFamily: 'inherit', fontWeight: 600
+        }}>›</button>
+      </div>
+
+      {/* Day headers */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '3px', marginBottom: '3px' }}>
+        {DAYS.map(d => (
+          <div key={d} style={{ textAlign: 'center', fontSize: '10px', fontWeight: 700, color: 'var(--text-3)', letterSpacing: '.06em', textTransform: 'uppercase', paddingBottom: '4px' }}>
+            {d}
+          </div>
+        ))}
+      </div>
+
+      {/* Calendar cells */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '3px' }}>
+        {cells.map((dayNum, i) => {
+          if (!dayNum) return <div key={i} />
+
+          const mm = String(month + 1).padStart(2, '0')
+          const dd = String(dayNum).padStart(2, '0')
+          const dateStr = `${year}-${mm}-${dd}`
+          const session = sessionMap[dateStr]
+          const isToday = dateStr === todayStr
+
+          const cellBg = session ? DAY_ALPHA[session.day_type] || 'var(--surface-2)' : 'var(--surface)'
+          const accentColor = session ? (DAY_COLOR_VARS[session.day_type] || 'var(--text-2)') : null
+
+          const shortName = session ? getShortName(session.day_type, programs) : null
+          const dur = session?.duration_minutes ? `${session.duration_minutes}m` : null
+          const hasPR = session?.has_pr
+
+          return (
+            <div
+              key={i}
+              onClick={() => session && onDayClick && onDayClick(session)}
+              style={{
+                minHeight: '72px',
+                background: cellBg,
+                border: isToday
+                  ? '2px solid var(--accent)'
+                  : session
+                    ? `1px solid ${DAY_ALPHA[session.day_type] || 'var(--border)'}`
+                    : '1px solid var(--border)',
+                borderRadius: '7px',
+                padding: '6px 5px 5px',
+                display: 'flex',
+                flexDirection: 'column',
+                cursor: session ? 'pointer' : 'default',
+                transition: 'opacity .12s',
+                overflow: 'hidden',
+                position: 'relative',
+              }}
+            >
+              {/* Date number */}
+              <span style={{
+                fontSize: '10px',
+                fontWeight: isToday ? 800 : 600,
+                color: isToday ? 'var(--accent)' : session ? accentColor : 'var(--text-3)',
+                lineHeight: 1,
+                marginBottom: '4px',
+              }}>{dayNum}</span>
+
+              {/* Today dot */}
+              {isToday && !session && (
+                <div style={{ width: '4px', height: '4px', borderRadius: '50%', background: 'var(--accent)', margin: '0 auto' }} />
+              )}
+
+              {/* Session info */}
+              {session && (
+                <>
+                  <span style={{
+                    fontSize: '10px',
+                    fontWeight: 700,
+                    color: accentColor,
+                    lineHeight: 1.2,
+                    wordBreak: 'break-word',
+                    flex: 1,
+                  }}>{shortName}</span>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '3px' }}>
+                    {dur && <span style={{ fontSize: '9px', color: 'var(--text-3)', fontWeight: 500 }}>{dur}</span>}
+                    {hasPR && <span style={{ fontSize: '9px', color: 'var(--pr-gold)', fontWeight: 800 }}>★</span>}
+                  </div>
+                </>
+              )}
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────
 // Main SessionLog component
 // ─────────────────────────────────────────────
 export default function SessionLog() {
@@ -908,22 +1079,34 @@ export default function SessionLog() {
             </div>
           ) : (
             <>
-              <div style={{ fontSize: '13px', color: 'var(--text-muted)', marginBottom: '12px' }}>
-                {sessions.length} session{sessions.length !== 1 ? 's' : ''} logged · tap a card to see sets
+              {/* Calendar month grid */}
+              <CalendarGrid
+                sessions={sessions}
+                programs={programs}
+                onDayClick={(session) => {
+                  // Scroll to the card for that session
+                  const el = document.getElementById(`session-card-${session.id}`)
+                  if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+                }}
+              />
+
+              <div style={{ fontSize: '13px', color: 'var(--text-3)', marginBottom: '12px', fontWeight: 500 }}>
+                {sessions.length} session{sessions.length !== 1 ? 's' : ''} logged
               </div>
 
               {sessions.map(session => (
-                <SessionCard
-                  key={session.id}
-                  session={session}
-                  getDayName={getDayName}
-                  formatDate={formatDate}
-                  onEdit={startEdit}
-                  onDeleteRequest={(id) => setDeletingId(id)}
-                  deletingId={deletingId}
-                  onDeleteConfirm={deleteSession}
-                  onDeleteCancel={() => setDeletingId(null)}
-                />
+                <div key={session.id} id={`session-card-${session.id}`}>
+                  <SessionCard
+                    session={session}
+                    getDayName={getDayName}
+                    formatDate={formatDate}
+                    onEdit={startEdit}
+                    onDeleteRequest={(id) => setDeletingId(id)}
+                    deletingId={deletingId}
+                    onDeleteConfirm={deleteSession}
+                    onDeleteCancel={() => setDeletingId(null)}
+                  />
+                </div>
               ))}
             </>
           )}
