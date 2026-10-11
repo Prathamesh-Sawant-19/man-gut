@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../supabase'
+import { useAuth } from '../context/AuthContext'
 
 const GOALS = ['Fat Loss', 'Muscle Gain', 'Strength', 'Athletic Performance', 'General Fitness', 'Endurance']
 
@@ -71,6 +72,7 @@ function ProgramForm({ form, setForm, onSave, saving, isEdit }) {
 }
 
 export default function ClientPrograms() {
+  const { user } = useAuth()
   const [programs, setPrograms] = useState([])
   const [loading, setLoading] = useState(true)
   const [view, setView] = useState('list')
@@ -85,7 +87,11 @@ export default function ClientPrograms() {
 
   async function fetchPrograms() {
     setLoading(true)
-    const { data } = await supabase.from('client_programs').select('*').order('created_at', { ascending: false })
+    const { data } = await supabase
+      .from('client_programs')
+      .select('*')
+      .eq('user_id', user.id)                       // ← only this coach's programs
+      .order('created_at', { ascending: false })
     if (data) setPrograms(data)
     setLoading(false)
   }
@@ -94,6 +100,7 @@ export default function ClientPrograms() {
     if (!form.client_name.trim() || !form.program_details.trim()) return
     setSaving(true)
     const { error } = await supabase.from('client_programs').insert([{
+      user_id: user.id,                              // ← attach to logged-in coach
       client_name: form.client_name.trim(),
       goal: form.goal,
       program_details: form.program_details.trim(),
@@ -115,7 +122,7 @@ export default function ClientPrograms() {
       goal: form.goal,
       program_details: form.program_details.trim(),
       notes: form.notes.trim() || null,
-    }).eq('id', selected.id)
+    }).eq('id', selected.id).eq('user_id', user.id) // ← safety: only update own rows
     if (!error) {
       setView('list')
       fetchPrograms()
@@ -124,7 +131,7 @@ export default function ClientPrograms() {
   }
 
   async function deleteProgram(id) {
-    await supabase.from('client_programs').delete().eq('id', id)
+    await supabase.from('client_programs').delete().eq('id', id).eq('user_id', user.id)
     setView('list')
     fetchPrograms()
   }
@@ -265,5 +272,3 @@ export default function ClientPrograms() {
     </div>
   )
 }
-
-

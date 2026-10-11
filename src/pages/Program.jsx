@@ -7,6 +7,15 @@ const DAY_COLORS = {
   day4: '#10b981', day5: '#f59e0b'
 }
 
+// Canonical day names — used for display and auto-seed
+const DAY_NAMES = {
+  day1: 'Chest + Triceps',
+  day2: 'Back + Biceps',
+  day3: 'Shoulders + Abs',
+  day4: 'Legs',
+  day5: 'Cardio',
+}
+
 const PHASE_MAP = {
   day1: [
     { phase: '🔴 Power', exercises: ['Plyometric Push-up', 'Med Ball Chest Pass'] },
@@ -41,6 +50,11 @@ const PHASE_MAP = {
   ],
 }
 
+// All exercises in the phase map for each day (used to seed default exercises)
+function getDefaultExercises(dayType) {
+  return (PHASE_MAP[dayType] || []).flatMap(p => p.exercises)
+}
+
 export default function Program() {
   const { user } = useAuth()
   const [programs, setPrograms] = useState([])
@@ -49,12 +63,42 @@ export default function Program() {
   const [newExercise, setNewExercise] = useState('')
   const [saving, setSaving] = useState(false)
 
-  useEffect(() => { fetchPrograms() }, [])
+  useEffect(() => { loadPrograms() }, [])
 
-  async function fetchPrograms() {
+  async function loadPrograms() {
     setLoading(true)
-    const { data } = await supabase.from('programs').select('*').eq('user_id', user.id).order('day_type')
-    if (data) setPrograms(data)
+    const { data } = await supabase
+      .from('programs')
+      .select('*')
+      .eq('user_id', user.id)
+      .order('day_type')
+
+    if (data) {
+      // Auto-seed any missing days for this user
+      const existingDays = new Set(data.map(p => p.day_type))
+      const missingDays = ['day1', 'day2', 'day3', 'day4', 'day5'].filter(d => !existingDays.has(d))
+
+      if (missingDays.length > 0) {
+        const toInsert = missingDays.map(day => ({
+          user_id: user.id,
+          day_type: day,
+          day_name: DAY_NAMES[day],
+          exercises: getDefaultExercises(day),
+        }))
+        const { data: inserted } = await supabase
+          .from('programs')
+          .insert(toInsert)
+          .select()
+
+        // Combine existing + newly inserted
+        const allPrograms = [...data, ...(inserted || [])].sort((a, b) =>
+          a.day_type.localeCompare(b.day_type)
+        )
+        setPrograms(allPrograms)
+      } else {
+        setPrograms(data)
+      }
+    }
     setLoading(false)
   }
 
@@ -70,17 +114,17 @@ export default function Program() {
       const updated = [...currentProgram.exercises, newExercise.trim()]
       await supabase.from('programs').update({ exercises: updated }).eq('id', currentProgram.id)
     } else {
-      // Create program row for this day if it doesn't exist yet
+      // Should rarely hit this now (auto-seed covers new users), but just in case
       await supabase.from('programs').insert([{
         user_id: user.id,
         day_type: activeDay,
-        day_name: `Day ${activeDay.replace('day', '')}`,
+        day_name: DAY_NAMES[activeDay],       // ← fixed: no longer "Day 1" hardcoded
         exercises: [newExercise.trim()]
       }])
     }
 
     setNewExercise('')
-    fetchPrograms()
+    loadPrograms()
     setSaving(false)
   }
 
@@ -88,7 +132,7 @@ export default function Program() {
     if (!currentProgram) return
     const updated = currentProgram.exercises.filter(e => e !== ex)
     await supabase.from('programs').update({ exercises: updated }).eq('id', currentProgram.id)
-    fetchPrograms()
+    loadPrograms()
   }
 
   return (

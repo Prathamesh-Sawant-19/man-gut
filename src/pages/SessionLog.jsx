@@ -7,6 +7,163 @@ const DAY_COLORS = {
   day4: '#10b981', day5: '#f59e0b'
 }
 
+// ─────────────────────────────────────────────
+// History card — expandable to show sets
+// ─────────────────────────────────────────────
+function SessionCard({ session, getDayName, formatDate, onEdit, onDeleteRequest, deletingId, onDeleteConfirm, onDeleteCancel }) {
+  const [expanded, setExpanded] = useState(false)
+  const [sets, setSets] = useState(null) // null = not loaded yet
+  const [loadingSets, setLoadingSets] = useState(false)
+
+  async function toggleExpand() {
+    if (!expanded && sets === null) {
+      setLoadingSets(true)
+      const { data } = await supabase
+        .from('session_sets')
+        .select('*')
+        .eq('session_id', session.id)
+        .order('exercise_name')
+        .order('set_number')
+      setSets(data || [])
+      setLoadingSets(false)
+    }
+    setExpanded(prev => !prev)
+  }
+
+  // Group sets by exercise
+  const byExercise = {}
+  if (sets) {
+    sets.forEach(row => {
+      if (!byExercise[row.exercise_name]) byExercise[row.exercise_name] = []
+      byExercise[row.exercise_name].push(row)
+    })
+  }
+
+  const color = DAY_COLORS[session.day_type] || '#6366f1'
+
+  return (
+    <div className="card" style={{ marginBottom: '12px' }}>
+
+      {/* Delete confirm banner */}
+      {deletingId === session.id && (
+        <div style={{
+          background: '#fef2f2', border: '1px solid #fca5a5', borderRadius: '6px',
+          padding: '10px 12px', marginBottom: '12px', fontSize: '13px', color: '#dc2626',
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px'
+        }}>
+          <span>Delete this session and all its sets?</span>
+          <div style={{ display: 'flex', gap: '8px', flexShrink: 0 }}>
+            <button
+              onClick={() => onDeleteConfirm(session.id)}
+              style={{ padding: '4px 12px', background: '#dc2626', color: '#fff', border: 'none', borderRadius: '4px', fontSize: '12px', fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}
+            >Delete</button>
+            <button
+              onClick={onDeleteCancel}
+              style={{ padding: '4px 12px', background: 'var(--surface)', color: 'var(--text-muted)', border: '1px solid var(--border)', borderRadius: '4px', fontSize: '12px', cursor: 'pointer', fontFamily: 'inherit' }}
+            >Cancel</button>
+          </div>
+        </div>
+      )}
+
+      {/* Card header row */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+        <div style={{ width: '4px', height: '40px', borderRadius: '2px', background: color, flexShrink: 0 }} />
+
+        {/* Clickable area to expand */}
+        <div style={{ flex: 1, cursor: 'pointer' }} onClick={toggleExpand}>
+          <div style={{ fontSize: '14px', fontWeight: 600 }}>{getDayName(session.day_type)}</div>
+          <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '2px' }}>
+            {formatDate(session.date)}{session.duration_minutes ? ` · ${session.duration_minutes} min` : ''}
+          </div>
+        </div>
+
+        {/* Expand chevron */}
+        <button
+          onClick={toggleExpand}
+          style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', fontSize: '18px', padding: '4px 6px', lineHeight: 1 }}
+        >
+          {expanded ? '▲' : '▼'}
+        </button>
+
+        {/* Edit + Delete */}
+        <div style={{ display: 'flex', gap: '6px', flexShrink: 0 }}>
+          <button
+            onClick={() => onEdit(session)}
+            title="Edit session"
+            style={{
+              background: 'var(--surface)', border: '1px solid var(--border)',
+              borderRadius: '6px', padding: '6px 10px', cursor: 'pointer',
+              fontSize: '13px', color: 'var(--text-muted)', fontFamily: 'inherit',
+            }}
+          >✏️</button>
+          <button
+            onClick={() => onDeleteRequest(session.id)}
+            title="Delete session"
+            style={{
+              background: 'var(--surface)', border: '1px solid var(--border)',
+              borderRadius: '6px', padding: '6px 10px', cursor: 'pointer',
+              fontSize: '13px', color: 'var(--text-muted)', fontFamily: 'inherit',
+            }}
+          >🗑️</button>
+        </div>
+      </div>
+
+      {/* Expanded sets view */}
+      {expanded && (
+        <div style={{ marginTop: '14px', marginLeft: '14px', borderTop: '1px solid var(--border)', paddingTop: '14px' }}>
+          {loadingSets ? (
+            <p style={{ fontSize: '13px', color: 'var(--text-muted)' }}>Loading sets...</p>
+          ) : sets && sets.length === 0 ? (
+            <p style={{ fontSize: '13px', color: 'var(--text-muted)' }}>No sets logged for this session.</p>
+          ) : (
+            Object.entries(byExercise).map(([exerciseName, rows]) => (
+              <div key={exerciseName} style={{ marginBottom: '16px' }}>
+                <div style={{ fontSize: '12px', fontWeight: 700, color: color, textTransform: 'uppercase', letterSpacing: '0.8px', marginBottom: '6px' }}>
+                  {exerciseName}
+                </div>
+                {/* Set rows header */}
+                <div style={{ display: 'grid', gridTemplateColumns: '28px 1fr 1fr', gap: '4px', marginBottom: '4px' }}>
+                  <div style={{ fontSize: '10px', color: 'var(--text-muted)', fontWeight: 700 }}>SET</div>
+                  <div style={{ fontSize: '10px', color: 'var(--text-muted)', fontWeight: 700 }}>WEIGHT</div>
+                  <div style={{ fontSize: '10px', color: 'var(--text-muted)', fontWeight: 700 }}>REPS</div>
+                </div>
+                {rows.map((row, i) => (
+                  <div key={i} style={{ display: 'grid', gridTemplateColumns: '28px 1fr 1fr', gap: '4px', padding: '4px 0', borderBottom: i < rows.length - 1 ? '1px solid var(--border)' : 'none' }}>
+                    <div style={{ fontSize: '12px', fontWeight: 600, color: color }}>{row.set_number}</div>
+                    <div style={{ fontSize: '13px', color: 'var(--text-primary)' }}>
+                      {row.weight_kg === null ? 'BW' : row.weight_kg != null ? `${row.weight_kg} kg` : '—'}
+                    </div>
+                    <div style={{ fontSize: '13px', color: 'var(--text-primary)' }}>
+                      {row.reps != null ? `${row.reps}` : '—'}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ))
+          )}
+
+          {/* Notes */}
+          {session.notes && (
+            <div style={{ fontSize: '13px', color: 'var(--text-secondary)', lineHeight: '1.6', borderTop: '1px solid var(--border)', paddingTop: '10px', marginTop: '4px' }}>
+              📝 {session.notes}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Notes preview when collapsed */}
+      {!expanded && session.notes && (
+        <div style={{ marginTop: '10px', marginLeft: '14px', fontSize: '13px', color: 'var(--text-secondary)', lineHeight: '1.6', borderTop: '1px solid var(--border)', paddingTop: '10px' }}>
+          {session.notes}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────
+// Main SessionLog component
+// ─────────────────────────────────────────────
 export default function SessionLog() {
   const { user } = useAuth()
   const [view, setView] = useState('history') // history | log
@@ -15,8 +172,8 @@ export default function SessionLog() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [success, setSuccess] = useState(false)
-  const [deletingId, setDeletingId] = useState(null) // session id pending delete confirm
-  const [editingSession, setEditingSession] = useState(null) // full session object being edited
+  const [deletingId, setDeletingId] = useState(null)
+  const [editingSession, setEditingSession] = useState(null)
 
   // Active session state
   const [selectedDay, setSelectedDay] = useState('day1')
@@ -52,7 +209,6 @@ export default function SessionLog() {
   }
 
   useEffect(() => {
-    // Only auto-init when NOT editing — editing loads sets from Supabase
     if (!editingSession && currentProgram) initExercises(currentProgram)
   }, [selectedDay, programs])
 
@@ -80,7 +236,6 @@ export default function SessionLog() {
     })
   }
 
-  // EDIT: load session into log form
   async function startEdit(session) {
     const { data: setsData } = await supabase
       .from('session_sets')
@@ -88,7 +243,6 @@ export default function SessionLog() {
       .eq('session_id', session.id)
       .order('set_number')
 
-    // Rebuild exerciseSets from DB rows
     const rebuilt = {}
     if (setsData) {
       setsData.forEach(row => {
@@ -100,7 +254,6 @@ export default function SessionLog() {
       })
     }
 
-    // Fill any exercises in the program that have no saved sets with a blank row
     const program = programs.find(p => p.day_type === session.day_type)
     if (program) {
       program.exercises.forEach(ex => {
@@ -126,7 +279,6 @@ export default function SessionLog() {
     setSessionNotes('')
   }
 
-  // SAVE (new or update)
   async function saveSession() {
     setSaving(true)
 
@@ -137,40 +289,29 @@ export default function SessionLog() {
         .from('sessions')
         .update({
           day_type: selectedDay,
-        user_id: user.id,
+          user_id: user.id,
           date: sessionDate,
           duration_minutes: duration ? parseInt(duration) : null,
           notes: sessionNotes || null,
         })
         .eq('id', editingSession.id)
 
-      if (error) {
-        setSaving(false)
-        alert('Failed to update session')
-        return
-      }
-
-      // Delete all existing sets then re-insert
+      if (error) { setSaving(false); alert('Failed to update session'); return }
       await supabase.from('session_sets').delete().eq('session_id', editingSession.id)
       sessionId = editingSession.id
-
     } else {
       const { data: sessionData, error: sessionError } = await supabase
         .from('sessions')
         .insert([{
           day_type: selectedDay,
-        user_id: user.id,
+          user_id: user.id,
           date: sessionDate,
           duration_minutes: duration ? parseInt(duration) : null,
           notes: sessionNotes || null,
         }])
         .select()
 
-      if (sessionError || !sessionData?.[0]) {
-        setSaving(false)
-        alert('Failed to save session')
-        return
-      }
+      if (sessionError || !sessionData?.[0]) { setSaving(false); alert('Failed to save session'); return }
       sessionId = sessionData[0].id
     }
 
@@ -203,7 +344,6 @@ export default function SessionLog() {
     setTimeout(() => setSuccess(false), 3000)
   }
 
-  // DELETE
   async function deleteSession(sessionId) {
     await supabase.from('session_sets').delete().eq('session_id', sessionId)
     await supabase.from('sessions').delete().eq('id', sessionId)
@@ -408,68 +548,21 @@ export default function SessionLog() {
           ) : (
             <>
               <div style={{ fontSize: '13px', color: 'var(--text-muted)', marginBottom: '12px' }}>
-                {sessions.length} session{sessions.length !== 1 ? 's' : ''} logged
+                {sessions.length} session{sessions.length !== 1 ? 's' : ''} logged · tap a card to see sets
               </div>
 
               {sessions.map(session => (
-                <div key={session.id || session.date} className="card" style={{ marginBottom: '12px' }}>
-
-                  {/* Delete confirm banner */}
-                  {deletingId === session.id && (
-                    <div style={{ background: '#fef2f2', border: '1px solid #fca5a5', borderRadius: '6px', padding: '10px 12px', marginBottom: '12px', fontSize: '13px', color: '#dc2626', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
-                      <span>Delete this session and all its sets?</span>
-                      <div style={{ display: 'flex', gap: '8px', flexShrink: 0 }}>
-                        <button
-                          onClick={() => deleteSession(session.id)}
-                          style={{ padding: '4px 12px', background: '#dc2626', color: '#fff', border: 'none', borderRadius: '4px', fontSize: '12px', fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}
-                        >Delete</button>
-                        <button
-                          onClick={() => setDeletingId(null)}
-                          style={{ padding: '4px 12px', background: 'var(--surface)', color: 'var(--text-muted)', border: '1px solid var(--border)', borderRadius: '4px', fontSize: '12px', cursor: 'pointer', fontFamily: 'inherit' }}
-                        >Cancel</button>
-                      </div>
-                    </div>
-                  )}
-
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                    <div style={{ width: '4px', height: '40px', borderRadius: '2px', background: DAY_COLORS[session.day_type] || '#6366f1', flexShrink: 0 }} />
-
-                    <div style={{ flex: 1 }}>
-                      <div style={{ fontSize: '14px', fontWeight: 600 }}>{getDayName(session.day_type)}</div>
-                      <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '2px' }}>
-                        {formatDate(session.date)}{session.duration_minutes ? ` · ${session.duration_minutes} min` : ''}
-                      </div>
-                    </div>
-
-                    {/* Edit + Delete */}
-                    <div style={{ display: 'flex', gap: '6px', flexShrink: 0 }}>
-                      <button
-                        onClick={() => startEdit(session)}
-                        title="Edit session"
-                        style={{
-                          background: 'var(--surface)', border: '1px solid var(--border)',
-                          borderRadius: '6px', padding: '6px 10px', cursor: 'pointer',
-                          fontSize: '13px', color: 'var(--text-muted)', fontFamily: 'inherit',
-                        }}
-                      >✏️</button>
-                      <button
-                        onClick={() => setDeletingId(session.id)}
-                        title="Delete session"
-                        style={{
-                          background: 'var(--surface)', border: '1px solid var(--border)',
-                          borderRadius: '6px', padding: '6px 10px', cursor: 'pointer',
-                          fontSize: '13px', color: 'var(--text-muted)', fontFamily: 'inherit',
-                        }}
-                      >🗑️</button>
-                    </div>
-                  </div>
-
-                  {session.notes && (
-                    <div style={{ marginTop: '10px', marginLeft: '14px', fontSize: '13px', color: 'var(--text-secondary)', lineHeight: '1.6', borderTop: '1px solid var(--border)', paddingTop: '10px' }}>
-                      {session.notes}
-                    </div>
-                  )}
-                </div>
+                <SessionCard
+                  key={session.id}
+                  session={session}
+                  getDayName={getDayName}
+                  formatDate={formatDate}
+                  onEdit={startEdit}
+                  onDeleteRequest={(id) => setDeletingId(id)}
+                  deletingId={deletingId}
+                  onDeleteConfirm={deleteSession}
+                  onDeleteCancel={() => setDeletingId(null)}
+                />
               ))}
             </>
           )}
