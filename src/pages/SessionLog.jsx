@@ -214,108 +214,119 @@ function SessionCard({ session, getDayName, formatDate, onEdit, onDeleteRequest,
 // ─────────────────────────────────────────────
 // Calendar Month Grid
 // ─────────────────────────────────────────────
-const DAY_COLOR_VARS = {
-  day1: 'var(--d1)', day2: 'var(--d2)', day3: 'var(--d3)',
-  day4: 'var(--d4)', day5: 'var(--d5)'
+const DAY_SOLID = {
+  day1: '#e03535', day2: '#3b82f6', day3: '#8b5cf6', day4: '#10b981', day5: '#f59e0b'
 }
-const DAY_ALPHA = {
-  day1: 'rgba(224,53,53,0.13)', day2: 'rgba(59,130,246,0.13)', day3: 'rgba(139,92,246,0.13)',
-  day4: 'rgba(16,185,129,0.13)', day5: 'rgba(245,158,11,0.13)'
+const DAY_BG = {
+  day1: 'rgba(224,53,53,0.18)', day2: 'rgba(59,130,246,0.18)', day3: 'rgba(139,92,246,0.18)',
+  day4: 'rgba(16,185,129,0.18)', day5: 'rgba(245,158,11,0.18)'
+}
+const DAY_BORDER = {
+  day1: 'rgba(224,53,53,0.45)', day2: 'rgba(59,130,246,0.45)', day3: 'rgba(139,92,246,0.45)',
+  day4: 'rgba(16,185,129,0.45)', day5: 'rgba(245,158,11,0.45)'
 }
 
-function CalendarGrid({ sessions, programs, onDayClick }) {
+function CalendarGrid({ sessions, programs, selectedSession, onDayClick }) {
   const today = new Date()
   const [year, setYear] = useState(today.getFullYear())
-  const [month, setMonth] = useState(today.getMonth()) // 0-indexed
+  const [month, setMonth] = useState(today.getMonth())
 
-  // Build a lookup: "YYYY-MM-DD" -> session
   const sessionMap = {}
-  sessions.forEach(s => {
-    if (s.date) sessionMap[s.date] = s
-  })
+  sessions.forEach(s => { if (s.date) sessionMap[s.date] = s })
 
-  // Helper: extract short workout name from program list
   function getShortName(dayType, progs) {
     const p = progs.find(p => p.day_type === dayType)
     if (!p) return dayType
-    // Shorten long names: "Chest & Triceps" → "Chest & Tri"
     let n = p.day_name || ''
-    if (n.length > 12) n = n.replace(/Tricep(s)?/i, 'Tri').replace(/Bicep(s)?/i, 'Bi')
-    if (n.length > 12) n = n.slice(0, 11) + '…'
+    n = n.replace(/Tricep(s)?/i, 'Tri').replace(/Bicep(s)?/i, 'Bi')
+    if (n.length > 11) n = n.slice(0, 10) + '…'
     return n
   }
 
-  // Build calendar days for this month
   const firstDay = new Date(year, month, 1)
   const lastDay = new Date(year, month + 1, 0)
-  const startPad = firstDay.getDay() // 0=Sun
-  const totalCells = startPad + lastDay.getDate()
-  const rows = Math.ceil(totalCells / 7)
+  const startPad = firstDay.getDay()
+  const rows = Math.ceil((startPad + lastDay.getDate()) / 7)
 
   const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December']
   const DAYS = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat']
-
   const todayStr = today.toISOString().split('T')[0]
 
   function prevMonth() {
-    if (month === 0) { setYear(y => y - 1); setMonth(11) }
-    else setMonth(m => m - 1)
+    if (month === 0) { setYear(y => y - 1); setMonth(11) } else setMonth(m => m - 1)
   }
   function nextMonth() {
-    if (month === 11) { setYear(y => y + 1); setMonth(0) }
-    else setMonth(m => m + 1)
+    if (month === 11) { setYear(y => y + 1); setMonth(0) } else setMonth(m => m + 1)
   }
 
   const cells = []
-  for (let r = 0; r < rows; r++) {
+  for (let r = 0; r < rows; r++)
     for (let d = 0; d < 7; d++) {
-      const cellIndex = r * 7 + d
-      const dayNum = cellIndex - startPad + 1
-      cells.push(dayNum >= 1 && dayNum <= lastDay.getDate() ? dayNum : null)
+      const n = r * 7 + d - startPad + 1
+      cells.push(n >= 1 && n <= lastDay.getDate() ? n : null)
     }
-  }
+
+  // Month stats
+  const monthSessions = sessions.filter(s => {
+    if (!s.date) return false
+    const [y, m] = s.date.split('-').map(Number)
+    return y === year && m === month + 1
+  })
 
   return (
-    <div style={{ marginBottom: '28px' }}>
+    <div>
       {/* Month nav */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '18px' }}>
         <button onClick={prevMonth} style={{
-          background: 'none', border: '1px solid var(--border)', borderRadius: '6px',
-          padding: '5px 11px', fontSize: '13px', cursor: 'pointer', color: 'var(--text-2)',
-          fontFamily: 'inherit', fontWeight: 600
+          background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: '8px',
+          padding: '7px 14px', fontSize: '16px', cursor: 'pointer', color: 'var(--text-2)',
+          fontFamily: 'inherit', fontWeight: 700, lineHeight: 1,
         }}>‹</button>
-        <span style={{ fontFamily: "'Playfair Display', serif", fontWeight: 700, fontSize: '16px', color: 'var(--text-1)' }}>
-          {MONTHS[month]} {year}
-        </span>
+        <div style={{ textAlign: 'center' }}>
+          <div style={{ fontFamily: "'Playfair Display', serif", fontWeight: 800, fontSize: '20px', color: 'var(--text-1)', letterSpacing: '-.02em' }}>
+            {MONTHS[month]} {year}
+          </div>
+          <div style={{ fontSize: '11px', color: 'var(--text-3)', marginTop: '2px', fontWeight: 600 }}>
+            {monthSessions.length} session{monthSessions.length !== 1 ? 's' : ''} this month
+          </div>
+        </div>
         <button onClick={nextMonth} style={{
-          background: 'none', border: '1px solid var(--border)', borderRadius: '6px',
-          padding: '5px 11px', fontSize: '13px', cursor: 'pointer', color: 'var(--text-2)',
-          fontFamily: 'inherit', fontWeight: 600
+          background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: '8px',
+          padding: '7px 14px', fontSize: '16px', cursor: 'pointer', color: 'var(--text-2)',
+          fontFamily: 'inherit', fontWeight: 700, lineHeight: 1,
         }}>›</button>
       </div>
 
       {/* Day headers */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '3px', marginBottom: '3px' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '4px', marginBottom: '4px' }}>
         {DAYS.map(d => (
-          <div key={d} style={{ textAlign: 'center', fontSize: '10px', fontWeight: 700, color: 'var(--text-3)', letterSpacing: '.06em', textTransform: 'uppercase', paddingBottom: '4px' }}>
+          <div key={d} style={{ textAlign: 'center', fontSize: '10px', fontWeight: 700, color: 'var(--text-3)', letterSpacing: '.08em', textTransform: 'uppercase', padding: '0 0 6px' }}>
             {d}
           </div>
         ))}
       </div>
 
-      {/* Calendar cells */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '3px' }}>
+      {/* Cells */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '4px' }}>
         {cells.map((dayNum, i) => {
-          if (!dayNum) return <div key={i} />
+          if (!dayNum) return <div key={i} style={{ minHeight: '86px' }} />
 
           const mm = String(month + 1).padStart(2, '0')
           const dd = String(dayNum).padStart(2, '0')
           const dateStr = `${year}-${mm}-${dd}`
           const session = sessionMap[dateStr]
           const isToday = dateStr === todayStr
+          const isSelected = selectedSession?.id === session?.id
 
-          const cellBg = session ? DAY_ALPHA[session.day_type] || 'var(--surface-2)' : 'var(--surface)'
-          const accentColor = session ? (DAY_COLOR_VARS[session.day_type] || 'var(--text-2)') : null
+          const color = session ? DAY_SOLID[session.day_type] || '#6366f1' : null
+          const bg = session ? DAY_BG[session.day_type] || 'var(--surface-2)' : 'var(--surface)'
+          const borderColor = isSelected
+            ? (color || 'var(--accent)')
+            : isToday
+              ? 'var(--accent)'
+              : session
+                ? DAY_BORDER[session.day_type]
+                : 'var(--border)'
 
           const shortName = session ? getShortName(session.day_type, programs) : null
           const dur = session?.duration_minutes ? `${session.duration_minutes}m` : null
@@ -324,59 +335,168 @@ function CalendarGrid({ sessions, programs, onDayClick }) {
           return (
             <div
               key={i}
-              onClick={() => session && onDayClick && onDayClick(session)}
+              onClick={() => onDayClick && onDayClick(session || null)}
               style={{
-                minHeight: '72px',
-                background: cellBg,
-                border: isToday
-                  ? '2px solid var(--accent)'
-                  : session
-                    ? `1px solid ${DAY_ALPHA[session.day_type] || 'var(--border)'}`
-                    : '1px solid var(--border)',
-                borderRadius: '7px',
-                padding: '6px 5px 5px',
+                minHeight: '86px',
+                background: bg,
+                border: `${isSelected || isToday ? '2px' : '1px'} solid ${borderColor}`,
+                borderRadius: '9px',
+                padding: '8px 7px 7px',
                 display: 'flex',
                 flexDirection: 'column',
                 cursor: session ? 'pointer' : 'default',
-                transition: 'opacity .12s',
+                transition: 'transform .1s, box-shadow .1s',
                 overflow: 'hidden',
-                position: 'relative',
+                boxShadow: isSelected ? `0 0 0 3px ${color}33` : session ? `0 2px 6px rgba(0,0,0,0.18)` : 'none',
               }}
+              onMouseEnter={e => { if (session) e.currentTarget.style.transform = 'translateY(-1px)' }}
+              onMouseLeave={e => { e.currentTarget.style.transform = '' }}
             >
               {/* Date number */}
               <span style={{
-                fontSize: '10px',
-                fontWeight: isToday ? 800 : 600,
-                color: isToday ? 'var(--accent)' : session ? accentColor : 'var(--text-3)',
+                fontSize: '11px',
+                fontWeight: isToday ? 900 : session ? 700 : 500,
+                color: isToday ? 'var(--accent)' : session ? color : 'var(--text-3)',
                 lineHeight: 1,
-                marginBottom: '4px',
+                marginBottom: '5px',
               }}>{dayNum}</span>
 
-              {/* Today dot */}
               {isToday && !session && (
-                <div style={{ width: '4px', height: '4px', borderRadius: '50%', background: 'var(--accent)', margin: '0 auto' }} />
+                <div style={{ width: '5px', height: '5px', borderRadius: '50%', background: 'var(--accent)', alignSelf: 'center', marginTop: '4px' }} />
               )}
 
-              {/* Session info */}
               {session && (
                 <>
                   <span style={{
                     fontSize: '10px',
-                    fontWeight: 700,
-                    color: accentColor,
-                    lineHeight: 1.2,
-                    wordBreak: 'break-word',
+                    fontWeight: 800,
+                    color: color,
+                    lineHeight: 1.25,
                     flex: 1,
+                    wordBreak: 'break-word',
                   }}>{shortName}</span>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '3px' }}>
-                    {dur && <span style={{ fontSize: '9px', color: 'var(--text-3)', fontWeight: 500 }}>{dur}</span>}
-                    {hasPR && <span style={{ fontSize: '9px', color: 'var(--pr-gold)', fontWeight: 800 }}>★</span>}
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '4px', gap: '2px' }}>
+                    {dur
+                      ? <span style={{ fontSize: '9px', color: 'var(--text-3)', fontWeight: 600, background: 'var(--surface-2)', borderRadius: '3px', padding: '1px 4px' }}>{dur}</span>
+                      : <span />}
+                    {hasPR && <span style={{ fontSize: '11px', color: 'var(--pr-gold)' }}>★</span>}
                   </div>
                 </>
               )}
             </div>
           )
         })}
+      </div>
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────
+// Selected Session Detail Panel
+// ─────────────────────────────────────────────
+function SessionDetail({ session, getDayName, formatDate, onEdit, onDeleteRequest, deletingId, onDeleteConfirm, onDeleteCancel, onClose }) {
+  const [sets, setSets] = useState(null)
+  const [loadingSets, setLoadingSets] = useState(false)
+
+  useEffect(() => {
+    if (!session) { setSets(null); return }
+    setLoadingSets(true)
+    supabase
+      .from('session_sets')
+      .select('*')
+      .eq('session_id', session.id)
+      .order('exercise_name')
+      .order('set_number')
+      .then(({ data }) => { setSets(data || []); setLoadingSets(false) })
+  }, [session?.id])
+
+  if (!session) return null
+
+  const color = DAY_SOLID[session.day_type] || '#6366f1'
+  const byExercise = {}
+  if (sets) sets.forEach(row => {
+    if (!byExercise[row.exercise_name]) byExercise[row.exercise_name] = []
+    byExercise[row.exercise_name].push(row)
+  })
+
+  return (
+    <div style={{
+      marginTop: '20px',
+      background: 'var(--surface)',
+      border: `1px solid ${DAY_BORDER[session.day_type] || 'var(--border)'}`,
+      borderRadius: '12px',
+      overflow: 'hidden',
+      boxShadow: '0 4px 16px rgba(0,0,0,0.18)',
+    }}>
+      {/* Header */}
+      <div style={{
+        padding: '14px 16px',
+        borderBottom: '1px solid var(--border)',
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        background: DAY_BG[session.day_type] || 'transparent',
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+          <div style={{ width: '4px', height: '36px', borderRadius: '2px', background: color, flexShrink: 0 }} />
+          <div>
+            <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-1)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+              {getDayName(session.day_type)}
+              {session.has_pr && <span style={{ fontSize: '12px' }}>🏆</span>}
+            </div>
+            <div style={{ fontSize: '12px', color: 'var(--text-3)', marginTop: '2px', display: 'flex', gap: '8px' }}>
+              <span>{formatDate(session.date)}</span>
+              {session.duration_minutes && <span>· {session.duration_minutes}m</span>}
+            </div>
+          </div>
+        </div>
+        <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+          <button onClick={() => onEdit(session)} style={{ background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: '6px', padding: '5px 10px', fontSize: '12px', cursor: 'pointer', color: 'var(--text-2)', fontFamily: 'inherit', fontWeight: 600 }}>Edit</button>
+          <button onClick={() => onDeleteRequest(session.id)} style={{ background: 'none', border: '1px solid rgba(224,53,53,0.3)', borderRadius: '6px', padding: '5px 10px', fontSize: '12px', cursor: 'pointer', color: 'var(--d1)', fontFamily: 'inherit', fontWeight: 600 }}>Delete</button>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', fontSize: '18px', cursor: 'pointer', color: 'var(--text-3)', lineHeight: 1, padding: '4px 6px' }}>×</button>
+        </div>
+      </div>
+
+      {/* Delete confirm */}
+      {deletingId === session.id && (
+        <div style={{ background: 'rgba(224,53,53,0.08)', borderBottom: '1px solid rgba(224,53,53,0.2)', padding: '10px 16px', fontSize: '13px', color: 'var(--d1)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <span>Delete this session and all its sets?</span>
+          <div style={{ display: 'flex', gap: '8px' }}>
+            <button onClick={() => onDeleteConfirm(session.id)} style={{ padding: '4px 12px', background: 'var(--d1)', color: '#fff', border: 'none', borderRadius: '4px', fontSize: '12px', fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}>Delete</button>
+            <button onClick={onDeleteCancel} style={{ padding: '4px 12px', background: 'var(--surface)', color: 'var(--text-2)', border: '1px solid var(--border)', borderRadius: '4px', fontSize: '12px', cursor: 'pointer', fontFamily: 'inherit' }}>Cancel</button>
+          </div>
+        </div>
+      )}
+
+      {/* Sets */}
+      <div style={{ padding: '14px 16px' }}>
+        {loadingSets ? (
+          <p style={{ color: 'var(--text-3)', fontSize: '13px' }}>Loading sets…</p>
+        ) : Object.keys(byExercise).length === 0 ? (
+          <p style={{ color: 'var(--text-3)', fontSize: '13px' }}>No sets recorded.</p>
+        ) : (
+          Object.entries(byExercise).map(([exercise, rows]) => (
+            <div key={exercise} style={{ marginBottom: '12px' }}>
+              <div style={{ fontSize: '12px', fontWeight: 700, color: color, marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '.04em' }}>{exercise}</div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                {rows.map((row, idx) => (
+                  <div key={idx} style={{
+                    background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: '6px',
+                    padding: '5px 10px', fontSize: '12px', color: 'var(--text-1)', fontWeight: 600,
+                    display: 'flex', alignItems: 'center', gap: '4px'
+                  }}>
+                    <span style={{ color: 'var(--text-3)', fontSize: '10px', fontWeight: 500 }}>#{row.set_number}</span>
+                    {row.weight_kg != null ? `${row.weight_kg}kg` : 'BW'} × {row.reps}
+                    {row.is_pr && <span style={{ color: 'var(--pr-gold)', fontSize: '10px' }}>★</span>}
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))
+        )}
+        {session.notes && (
+          <div style={{ marginTop: '8px', padding: '10px 12px', background: 'var(--surface-2)', borderRadius: '7px', fontSize: '13px', color: 'var(--text-2)', lineHeight: 1.6 }}>
+            {session.notes}
+          </div>
+        )}
       </div>
     </div>
   )
@@ -396,6 +516,7 @@ export default function SessionLog() {
   const [successMsg, setSuccessMsg] = useState('')
   const [deletingId, setDeletingId] = useState(null)
   const [editingSession, setEditingSession] = useState(null)
+  const [selectedSession, setSelectedSession] = useState(null)
 
   // Last session reference data: { exerciseName -> [{ weight_kg, reps, set_number }] }
   const [lastSessionSets, setLastSessionSets] = useState({})
@@ -682,6 +803,20 @@ export default function SessionLog() {
       await supabase.from('session_sets').delete().eq('session_id', editingSession.id)
       sessionId = editingSession.id
     } else {
+      // Duplicate date guard — one session per calendar day
+      const { data: existing } = await supabase
+        .from('sessions')
+        .select('id')
+        .eq('user_id', user.id)
+        .eq('date', sessionDate)
+        .limit(1)
+
+      if (existing?.length > 0) {
+        setSaving(false)
+        alert(`A session is already logged for ${sessionDate}. Open History and edit that session instead.`)
+        return
+      }
+
       const { data: sessionData, error: sessionError } = await supabase
         .from('sessions')
         .insert([{
@@ -1083,31 +1218,25 @@ export default function SessionLog() {
               <CalendarGrid
                 sessions={sessions}
                 programs={programs}
+                selectedSession={selectedSession}
                 onDayClick={(session) => {
-                  // Scroll to the card for that session
-                  const el = document.getElementById(`session-card-${session.id}`)
-                  if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+                  if (!session) return
+                  setSelectedSession(prev => prev?.id === session.id ? null : session)
                 }}
               />
 
-              <div style={{ fontSize: '13px', color: 'var(--text-3)', marginBottom: '12px', fontWeight: 500 }}>
-                {sessions.length} session{sessions.length !== 1 ? 's' : ''} logged
-              </div>
-
-              {sessions.map(session => (
-                <div key={session.id} id={`session-card-${session.id}`}>
-                  <SessionCard
-                    session={session}
-                    getDayName={getDayName}
-                    formatDate={formatDate}
-                    onEdit={startEdit}
-                    onDeleteRequest={(id) => setDeletingId(id)}
-                    deletingId={deletingId}
-                    onDeleteConfirm={deleteSession}
-                    onDeleteCancel={() => setDeletingId(null)}
-                  />
-                </div>
-              ))}
+              {/* Session detail panel — shown when a calendar day is clicked */}
+              <SessionDetail
+                session={selectedSession}
+                getDayName={getDayName}
+                formatDate={formatDate}
+                onEdit={(s) => { setSelectedSession(null); startEdit(s) }}
+                onDeleteRequest={(id) => setDeletingId(id)}
+                deletingId={deletingId}
+                onDeleteConfirm={async (id) => { await deleteSession(id); setSelectedSession(null) }}
+                onDeleteCancel={() => setDeletingId(null)}
+                onClose={() => setSelectedSession(null)}
+              />
             </>
           )}
         </>
